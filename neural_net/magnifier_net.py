@@ -5,6 +5,7 @@ from typing import Dict, List, Optional, Tuple
 import torch
 import torch.nn as nn
 import torchvision.transforms.functional as TF
+
 import utils
 
 from .hf_segformer import HFSegformer, HFSegformerHead, SegformerEncoder
@@ -27,7 +28,7 @@ class MagnifierNet(nn.Module):
         small_patch_size: int = 64,
         num_classes: int = 2,
         channels: int = 12,
-        freeze_backbones: bool = True
+        freeze_backbones: bool = True,
     ):
         super().__init__()
         # Net common parameters
@@ -36,7 +37,7 @@ class MagnifierNet(nn.Module):
             "classifier_dropout_prob": 0.1,
             "reshape_last_stage": True,
             "decoder_hidden_size": 256,
-            "hidden_sizes": [n*2 for n in [32, 64, 160, 256]],
+            "hidden_sizes": [n * 2 for n in [32, 64, 160, 256]],
         }
         backbone_dict = {
             "attention_probs_dropout_prob": 0,
@@ -50,7 +51,7 @@ class MagnifierNet(nn.Module):
             "reshape_last_stage": True,
             "sr_ratios": [8, 4, 2, 1],
             "strides": [4, 2, 2, 2],
-            "depths": [2 ,2 , 2, 2],
+            "depths": [2, 2, 2, 2],
             "hidden_sizes": [32, 64, 160, 256],
         }
         # Nets
@@ -58,7 +59,9 @@ class MagnifierNet(nn.Module):
         self.small_net = SegformerEncoder(**backbone_dict)
         # Lock pretrained
         if freeze_backbones:
-            parameters = list(self.small_net.parameters()) + list(self.big_net.parameters())
+            parameters = list(self.small_net.parameters()) + list(
+                self.big_net.parameters()
+            )
             for param in parameters:
                 param.requires_grad = False
 
@@ -99,15 +102,3 @@ class MagnifierNet(nn.Module):
                 dim=1,
             )
         return self.head(hidden_states)
-
-
-"""
-if __name__ == "__main__":
-    from PIL import Image
-    import torchvision.transforms.functional as TF
-    img = TF.to_tensor(Image.open("../lion1.jpg")).unsqueeze(0)
-    img = torch.concat([img, img, img])
-    net = MagnifierNet(small_patch_size=64, channels=3)
-    out = net(img, hard=torch.tensor([True, False, True]))
-    pass
-"""
