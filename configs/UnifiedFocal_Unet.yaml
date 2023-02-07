@@ -1,0 +1,7 @@
+---
+name: MitB3 config
+
+model: configs/model/unet_24_unifiedfocal.yaml
+trainer: configs/trainer/default_gpu.yaml
+dataset: configs/dataset/satellite.yaml
+comet_api: configs/comet/api.yaml

@@ -1,0 +1,39 @@
+---
+model:
+  name: UNet
+  parameters:
+    n_classes: 1
+    n_channels: 12
+  weights: {}
+
+metrics:
+  Accuracy: { num_classes: &num_classes 2 }
+  Precision: { num_classes: *num_classes, average: none, mdmc_average: global }
+  Recall: { num_classes: *num_classes, average: none, mdmc_average: global }
+  F1Score: { num_classes: *num_classes, average: none, mdmc_average: global }
+
+losses:
+  classification:
+    name: loss.AsymmetricUnifiedFocalLoss
+    normalized_scores: true
+    parameters:
+      weight: 0.5
+      delta: 0.6
+      gamma: 0.1
+  regression:
+    name: MSELoss
+    parameters: {}
+
+rgb_channels: [ 3, 2, 1 ]
+classes: *num_classes
+lr: 0.001
+
+optimizer:
+  name: AdamW
+  parameters:
+    weight_decay: 0.01
+
+scheduler:
+  name: StepLR
+  parameters:
+    step_size: 15
