@@ -22,7 +22,7 @@ class CaliforniaDataModule(pl.LightningDataModule):
 
         # Create folders sets
         self.hparams["key"] = int(self.hparams["key"])
-        val_fold = (self.hparams["key"] + 1) % 4
+        val_fold = (self.hparams["key"] + 1) % 5
 
         self.train_transforms = ToTensor()
         self.test_transforms = ToTensor()
@@ -35,9 +35,7 @@ class CaliforniaDataModule(pl.LightningDataModule):
         self.batch_size = self.hparams["batch_size"]
 
         self.assigned_folds = {
-            "train": [
-                x for x in range(4 + 1) if x not in (self.hparams["key"], val_fold)
-            ],
+            "train": [x for x in range(5) if x not in (self.hparams["key"], val_fold)],
             "val": [val_fold],
             "test": [self.hparams["key"]],
         }
@@ -45,7 +43,7 @@ class CaliforniaDataModule(pl.LightningDataModule):
         folds = list(chain(*self.assigned_folds.values()))
         assert len(set(folds)) == len(folds)
 
-        self.root = "data/california"
+        self.root = self.hparams["root"]
 
     def setup(self, stage: Optional[str] = None) -> None:
         if stage in ("fit", None):

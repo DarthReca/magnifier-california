@@ -1,10 +1,7 @@
 ---
+__target__: neural_net.MagnifierNet
 model: segformer
 num_classes: 1
 channels: 12
 big_patch_size: 512
 small_patch_size: 64
-
-weights:
-  big_net: weights/HF_mit_b0_24c.pth
-  small_net: weights/HF_mit_b0_24c.pth

@@ -8,6 +8,7 @@ import comet_ml
 import hydra
 import pytorch_lightning as pl
 import pytorch_lightning.loggers as loggers
+from hydra.utils import instantiate
 from omegaconf import DictConfig
 
 import utils
@@ -22,7 +23,7 @@ def main(cfg: DictConfig):
     # Create datamodule
     datamodule = CaliforniaDataModule(**cfg["dataset"])
     # Create model
-    pl_model = MagnifierNet(**cfg["model"])
+    pl_model = instantiate(cfg["model"])
     # Setup logger
     logger = loggers.CometLogger(**cfg["logger"], experiment_name=cfg["model"]["name"])
     # Setup checkpoint callback

@@ -2,6 +2,7 @@ seed: 42
 
 pre_available: False
 mode: post
+root: "data/california"
 
 train_set: null
 test_set: ???
