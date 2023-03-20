@@ -1,7 +1,12 @@
 ---
-name: Magnifier config
+name: Magnifier
 
-model: configs/model/magnifier_24_unifiedfocal.yaml
-trainer: configs/trainer/default_gpu.yaml
-dataset: configs/dataset/satellite.yaml
-comet_api: configs/comet/api.yaml
+defaults:
+  - _self_
+  - model: magnifier_segformer
+  - trainer: default_gpu
+  - dataset: california
+  - logger: comet
+
+mode: train
+ckpt_path: null

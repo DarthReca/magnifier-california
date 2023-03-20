@@ -1,18 +1,18 @@
 import os
 from glob import glob
+from itertools import chain
 from typing import Any, Dict, List, Optional
 
 import h5py
 import hdf5plugin
 import numpy as np
-import pandas as pd
 import pytorch_lightning as pl
 import skimage.util as util
 import torch
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
-from utils import config_to_object
+from dict_transforms import ToTensor
 
 
 class CaliforniaDataModule(pl.LightningDataModule):
@@ -20,53 +20,12 @@ class CaliforniaDataModule(pl.LightningDataModule):
         super().__init__()
         self.save_hyperparameters()
 
-        def filter_by_notes(x):
-            return (
-                len(np.intersect1d(str(x).split("-"), self.hparams["comments_filter"]))
-                == 0
-            )
-
-        pdf = pd.read_csv(self.hparams["csv"])
-        pdf = pdf[pdf["valid"].isin(self.hparams["validity_filter"])]
-        pdf = pdf[pdf["comments"].map(filter_by_notes)]
-        if self.hparams["mode"] == "prepost" or self.hparams["pre_available"]:
-            pdf = pdf[pdf["has_prefire"]]
         # Create folders sets
         self.hparams["key"] = int(self.hparams["key"])
-        val_fold = (self.hparams["key"] + 1) % pdf["fold"].max()
+        val_fold = (self.hparams["key"] + 1) % 4
 
-        if self.hparams["train_fold"] is None:
-            train_fold = ~pdf["fold"].isin((self.hparams["key"], val_fold))
-        else:
-            train_fold = pdf["fold"] == int(self.hparams["train_fold"])
-        self.test_folders = pdf[pdf["fold"] == self.hparams["key"]]["folder"].to_list()
-        self.val_folders = pdf[pdf["fold"] == val_fold]["folder"].to_list()
-        self.train_folders = pdf[train_fold]["folder"].to_list()
-
-        # Assert everything is right
-        assert (
-            len(self.train_folders) != 0
-            and len(self.val_folders) != 0
-            and len(self.test_folders) != 0
-        )
-        if self.hparams["train_fold"] is None:
-            assert (
-                len(self.test_folders + self.val_folders + self.train_folders)
-                == pdf.shape[0]
-            )
-        assert len(set(self.train_folders) & set(self.test_folders)) == 0
-        assert len(set(self.train_folders) & set(self.val_folders)) == 0
-        assert len(set(self.test_folders) & set(self.val_folders)) == 0
-
-        self.train_transforms = [
-            config_to_object("torchvision.transforms", k, v)
-            for k, v in self.hparams["train_transform"].items()
-        ]
-
-        self.test_transforms = [
-            config_to_object("torchvision.transforms", k, v)
-            for k, v in self.hparams["test_transform"].items()
-        ]
+        self.train_transforms = ToTensor()
+        self.test_transforms = ToTensor()
 
         self.train_dataset = None
         self.val_dataset = None
@@ -75,33 +34,51 @@ class CaliforniaDataModule(pl.LightningDataModule):
 
         self.batch_size = self.hparams["batch_size"]
 
+        self.assigned_folds = {
+            "train": [
+                x for x in range(4 + 1) if x not in (self.hparams["key"], val_fold)
+            ],
+            "val": [val_fold],
+            "test": [self.hparams["key"]],
+        }
+        # Assert assigned_folds values are unique and not overlapping
+        folds = list(chain(*self.assigned_folds.values()))
+        assert len(set(folds)) == len(folds)
+
+        self.root = "data/california"
+
     def setup(self, stage: Optional[str] = None) -> None:
         if stage in ("fit", None):
-            self.train_dataset = CaliforniaDataset(
-                "data/california",
+            self.train_dataset = HDF5CaliforniaDataset(
+                self.root,
                 transforms=self.train_transforms,
                 patch_size=self.hparams["patch_size"],
                 keep_burned_only=self.hparams["keep_burned_only"],
-                folder_list=self.train_folders,
                 mode=self.hparams["mode"],
+                fold_list=self.assigned_folds["train"],
+                attributes_filter=self.hparams["comments_filter"],
             )
+
         if stage in ("fit", "validate", None):
-            self.val_dataset = CaliforniaDataset(
-                "data/california",
+            self.val_dataset = HDF5CaliforniaDataset(
+                self.root,
                 transforms=self.test_transforms,
                 patch_size=self.hparams["patch_size"],
                 keep_burned_only=self.hparams["keep_burned_only"],
-                folder_list=self.val_folders,
                 mode=self.hparams["mode"],
+                fold_list=self.assigned_folds["val"],
+                attributes_filter=self.hparams["comments_filter"],
             )
+
         if stage in ("test", None):
-            self.test_dataset = CaliforniaDataset(
-                "data/california",
+            self.test_dataset = HDF5CaliforniaDataset(
+                self.root,
                 transforms=self.test_transforms,
                 patch_size=self.hparams["patch_size"],
                 keep_burned_only=self.hparams["keep_burned_only"],
-                folder_list=self.test_folders,
                 mode=self.hparams["mode"],
+                fold_list=self.assigned_folds["test"],
+                attributes_filter=self.hparams["comments_filter"],
             )
 
     def train_dataloader(self):
@@ -133,83 +110,6 @@ class CaliforniaDataModule(pl.LightningDataModule):
         )
 
 
-class CaliforniaDataset(Dataset):
-    def __init__(
-        self,
-        root: str,
-        patch_size: int = 512,
-        folder_list: List[str] = None,
-        keep_burned_only: bool = True,
-        transforms=None,
-        mode: str = "post",
-    ):
-        # Assert validity
-        if mode not in ["post", "prepost"]:
-            raise ValueError("mode must be post or prepost")
-
-        self.transforms = transforms
-        self.patches = []
-        # No folder list provided
-        if folder_list is None or len(folder_list) == 0:
-            folder_list = os.listdir(root)
-        # Load all patches
-        for folder in tqdm(folder_list):
-            if "gdb" in folder or not os.path.exists(
-                f"{root}/{folder}/aggregated_bands.npy"
-            ):
-                continue
-            img = np.load(f"{root}/{folder}/aggregated_bands.npy")
-            if mode == "prepost":
-                img = np.concatenate(
-                    [img, np.load(f"{root}/{folder}/pre_aggregated_bands.npy")], axis=-1
-                )
-            mask = np.load(f"{root}/{folder}/mask.npy")
-            # Init
-            img = np.concatenate([img, mask.reshape(*mask.shape, 1)], axis=-1)
-            img_size = img.shape[0]
-            usable_size = img_size // patch_size * patch_size
-            overlapping_start = img_size - patch_size
-            # Portioning
-            to_cut = img[:usable_size, :usable_size]
-            last_row = img[overlapping_start:, :usable_size]
-            last_column = img[:usable_size, overlapping_start:]
-            last_crop = img[overlapping_start:img_size, overlapping_start:img_size]
-            # Crop
-            wanted_crop_size = (patch_size, patch_size, img.shape[-1])
-            last_row = util.view_as_blocks(last_row, wanted_crop_size)
-            last_column = util.view_as_blocks(last_column, wanted_crop_size)
-            crops = util.view_as_blocks(to_cut, wanted_crop_size)
-            # Reshaping
-            crops = crops.reshape(crops.shape[0] * crops.shape[1], *wanted_crop_size)
-            last_row = last_row.reshape(last_row.shape[1], *wanted_crop_size)
-            last_column = last_column.reshape(last_column.shape[0], *wanted_crop_size)
-            last_crop = last_crop.reshape(1, *last_crop.shape)
-            # Merge
-            merged = np.concatenate([crops, last_column, last_row, last_crop])
-            if keep_burned_only:
-                merged = merged[merged[:, :, :, -1].sum(axis=(1, 2)) > 0]
-            self.patches.append(merged)
-
-        self.patches = np.concatenate(self.patches)
-        print(f"Dataset len = {self.patches.shape[0]}")
-
-    def __getitem__(self, item):
-        result = {"image": self.patches[item, :, :, :-1]}
-        if self.transforms is not None:
-            for t in self.transforms:
-                result = t(result)
-        result["mask"] = torch.from_numpy(self.patches[item, :, :, -1]).unsqueeze(0)
-        return result
-
-    def __len__(self):
-        return self.patches.shape[0]
-
-
-"""
-SECTION BELOW IS NOT TESTED SUFFICIENTLY BUT IT SHOULD WORK
-"""
-
-
 class HDF5CaliforniaDataset(Dataset):
     def __init__(
         self,
@@ -220,6 +120,7 @@ class HDF5CaliforniaDataset(Dataset):
         transforms=None,
         mode: str = "post",
         pre_available: bool = False,
+        attributes_filter: List[int] = [],
     ):
         # Assert validity
         if mode not in ["post", "prepost"]:
@@ -230,17 +131,29 @@ class HDF5CaliforniaDataset(Dataset):
         # No folder list provided
         if fold_list is None or len(fold_list) == 0:
             fold_list = list(range(5))
-        fold_list = [str(x) for x in fold_list]
+        fold_list = set([str(x) for x in fold_list])
         # Load all patches
         for dataset_file in glob(f"{hdf5_folder}/*.hdf5"):
             with h5py.File(dataset_file, "r") as dataset:
                 for fold in fold_list & set(dataset.keys()):
                     for uid in dataset[fold].keys():
                         matrices = dict(dataset[fold][uid].items())
-                        if "pre_fire" not in matrices and pre_available:
+                        # Filter
+                        comments = [
+                            int(c)
+                            for c in str(matrices["post_fire"].attrs["comments"]).split(
+                                "-"
+                            )
+                            if c.isnumeric()
+                        ]
+                        if set(comments) & set(attributes_filter):
+                            continue
+                        if "pre_fire" not in matrices and (
+                            pre_available or mode == "prepost"
+                        ):
                             continue
                         if mode != "prepost":
-                            matrices.pop("pre_fire")
+                            matrices.pop("pre_fire", None)
                         mask = matrices.pop("mask")[...]
                         # Init
                         img = np.concatenate(

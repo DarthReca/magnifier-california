@@ -2,16 +2,19 @@
 from itertools import chain, groupby, product
 from typing import Dict, List, Optional, Tuple
 
+import pytorch_lightning as pl
 import torch
 import torch.nn as nn
+import torchmetrics
 import torchvision.transforms.functional as TF
+from transformers import SegformerConfig, SegformerDecodeHead, SegformerModel
+from unet import UNetDecoder, UNetEncoder
 
 import utils
+from loss import AsymmetricUnifiedFocalLoss
 
-from .hf_segformer import HFSegformer, HFSegformerHead, SegformerEncoder
 
-
-class MagnifierNet(nn.Module):
+class MagnifierNet(pl.LightningModule):
     """
     A multiple net for patch of different size.
 
@@ -21,57 +24,60 @@ class MagnifierNet(nn.Module):
         The size of the patch to be considered as small
     num_classes: int, optional
         the number of classes
+    channels: int, optional
+        the number of channels
+    big_patch_size: int, optional
+        the size of the patch to be considered as big
+    model: str, optional
+        the model to use, can be "segformer" or "unet"
     """
 
     def __init__(
         self,
+        model: str = "segformer",
+        big_patch_size: int = 512,
         small_patch_size: int = 64,
         num_classes: int = 2,
         channels: int = 12,
-        freeze_backbones: bool = True,
     ):
         super().__init__()
-        # Net common parameters
-        head_dict = {
-            "num_classes": num_classes,
-            "classifier_dropout_prob": 0.1,
-            "reshape_last_stage": True,
-            "decoder_hidden_size": 256,
-            "hidden_sizes": [n * 2 for n in [32, 64, 160, 256]],
-        }
-        backbone_dict = {
-            "attention_probs_dropout_prob": 0,
-            "drop_path_rate": 0.1,
-            "hidden_act": "gelu",
-            "hidden_dropout_prob": 0,
-            "mlp_ratios": [4, 4, 4, 4],
-            "num_attention_heads": [1, 2, 5, 8],
-            "num_channels": channels,
-            "patch_sizes": [7, 3, 3, 3],
-            "reshape_last_stage": True,
-            "sr_ratios": [8, 4, 2, 1],
-            "strides": [4, 2, 2, 2],
-            "depths": [2, 2, 2, 2],
-            "hidden_sizes": [32, 64, 160, 256],
-        }
+        if model not in ["segformer", "unet"]:
+            raise ValueError("Model not supported")
         # Nets
-        self.big_net = SegformerEncoder(**backbone_dict)
-        self.small_net = SegformerEncoder(**backbone_dict)
-        # Lock pretrained
-        if freeze_backbones:
-            parameters = list(self.small_net.parameters()) + list(
-                self.big_net.parameters()
-            )
-            for param in parameters:
-                param.requires_grad = False
+        self.big_net = None
+        self.small_net = None
+        self.head = None
+        self.postprocess = lambda x: x
+        self.backbone_forward = lambda backbone, x: backbone(x)
 
-        self.head = HFSegformerHead(**head_dict)
+        if model == "segformer":
+            self._segformer_init(num_classes, channels, big_patch_size)
+        elif model == "unet":
+            self._unet_init(num_classes, channels, big_patch_size)
+
         # Parameters init
         self.small_patch_size = small_patch_size
+        # Loss
+        self.loss = AsymmetricUnifiedFocalLoss(0.5, 0.6, 0.1)
+        # Metrics
+        self.test_metrics = torchmetrics.MetricCollection(
+            [
+                torchmetrics.JaccardIndex(num_classes=2, reduction="none"),
+                torchmetrics.F1Score(
+                    num_classes=2, average="none", mdmc_average="global"
+                ),
+                torchmetrics.Precision(
+                    num_classes=2, average="none", mdmc_average="global"
+                ),
+                torchmetrics.Recall(
+                    num_classes=2, average="none", mdmc_average="global"
+                ),
+            ]
+        )
 
     def forward(self, x: torch.Tensor):
         # Forward all images to the net
-        hidden_states = list(self.big_net(x, output_hidden_states=True)[1])
+        hidden_states = list(self.backbone_forward(self.big_net, x))
         # Create crops and their positions
         cropped_batch = []
         positions = []
@@ -83,7 +89,7 @@ class MagnifierNet(nn.Module):
         cropped_batch = torch.concat(cropped_batch)
         num_crops = (x.size()[-1] // self.small_patch_size) ** 2
         # Forward to backbone
-        crops_out = self.small_net(cropped_batch, output_hidden_states=True)[1]
+        crops_out = self.backbone_forward(self.small_net, cropped_batch)
         # Recompose hidden states
         for i, hidden in enumerate(crops_out):
             hidden_states[i] = torch.concat(
@@ -101,4 +107,96 @@ class MagnifierNet(nn.Module):
                 ],
                 dim=1,
             )
-        return self.head(hidden_states)
+        out = self.head(hidden_states)
+        return self.postprocess(out)
+
+    def configure_optimizers(self):
+        optimizer = torch.optim.AdamW(self.parameters(), lr=0.001)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=15, gamma=0.1)
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": scheduler,
+        }
+
+    def training_step(self, batch, batch_idx):
+        masks, images = (
+            batch["mask"].float(),
+            batch["image"].float(),
+        )
+        masks = masks.squeeze(1)
+        # Forward
+        out = self(images)
+        out = torch.sigmoid(out)
+        # Loss
+        loss = self.loss(out, masks)
+        # Log
+        self.log("train_loss", loss)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        masks, images = (
+            batch["mask"].float(),
+            batch["image"].float(),
+        )
+        masks = masks.squeeze(1)
+        # Forward
+        out = self(images)
+        out = torch.sigmoid(out)
+        # Loss
+        loss = self.loss(out, masks)
+        # Log
+        self.log("val_loss", loss)
+        return loss
+
+    def test_step(self, batch, batch_idx):
+        masks, images = (
+            batch["mask"].float(),
+            batch["image"].float(),
+        )
+        masks = masks.squeeze(1)
+        # Forward
+        out = self(images)
+        out = torch.sigmoid(out)
+        # Loss
+        loss = self.loss(out, masks)
+        # Metrics
+        self.test_metrics(out, masks)
+        # Log
+        self.log("test_loss", loss)
+        self.log_dict(self.test_metrics)
+        return loss
+
+    def _segformer_init(
+        self, num_classes: int = 2, channels: int = 12, big_patch_size: int = 512
+    ):
+        config = SegformerConfig(
+            num_channels=channels,
+            num_labels=num_classes,
+            semantic_loss_ignore_index=-100,
+        )
+
+        self.big_net = SegformerModel(config)
+        self.small_net = SegformerModel(config)
+
+        self.head = SegformerDecodeHead(
+            config, hidden_size=[h * 2 for h in config.hidden_size]
+        )
+
+        self.postprocess = lambda x: nn.functional.interpolate(
+            x, size=big_patch_size, mode="bilinear", align_corners=False
+        )
+
+        self.backbone_forward = lambda backbone, x: backbone(
+            x, output_hidden_states=True
+        )[1]
+
+    def _unet_init(
+        self, num_classes: int = 2, channels: int = 12, big_patch_size: int = 512
+    ):
+        self.big_net = UNetEncoder(channels)
+        self.small_net = UNetEncoder(channels)
+        self.head = UNetDecoder(
+            num_classes=num_classes,
+            n_channels=2048,
+        )
+        self.postprocess = lambda x: x

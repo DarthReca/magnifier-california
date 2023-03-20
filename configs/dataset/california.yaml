@@ -1,8 +1,10 @@
 seed: 42
 
-csv: california_folds.csv
 pre_available: False
 mode: post
+
+train_set: null
+test_set: ???
 
 validity_filter: ["y"]
 comments_filter: [6]
@@ -12,9 +14,3 @@ num_workers: 4
 
 patch_size: 512
 keep_burned_only: true
-
-train_transform:
-  dict_transforms.ToTensor: {}
-
-test_transform:
-  dict_transforms.ToTensor: {}

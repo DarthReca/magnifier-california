@@ -1,2 +1,1 @@
-from .gdice_loss import GDiceLossV2
 from .unified_focal_loss import AsymmetricUnifiedFocalLoss, SymmetricUnifiedFocalLoss
