@@ -16,7 +16,7 @@ from lightning_modules import CaliforniaDataModule
 from neural_net import MagnifierNet
 
 
-@hydra.main(config_path="configs", config_name="UnifiedFocal_Magnifier")
+@hydra.main(config_path="configs", config_name="train")
 def main(cfg: DictConfig):
     # Set common seed
     pl.seed_everything(47, True)
