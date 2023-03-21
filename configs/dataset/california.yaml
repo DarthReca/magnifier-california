@@ -2,7 +2,7 @@ seed: 42
 
 pre_available: False
 mode: post
-root: "data/california"
+root: "../california_burned_areas"
 
 train_set: null
 test_set: ???
@@ -15,3 +15,4 @@ num_workers: 4
 
 patch_size: 512
 keep_burned_only: true
+debug: false

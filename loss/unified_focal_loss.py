@@ -8,13 +8,13 @@ import torch.nn as nn
 
 
 def identify_axis(shape):
-    # Three dimensional
+    # Three dimensional ADAPTED FOR PYTORCH
     if len(shape) == 5:
-        return [1, 2, 3]
+        return [2, 3, 4]
 
-    # Two dimensional
+    # Two dimensional ADAPTED FOR PYTORCH
     elif len(shape) == 4:
-        return [1, 2]
+        return [2, 3]
 
     # Exception - Unknown
     else:
@@ -244,11 +244,11 @@ class AsymmetricUnifiedFocalLoss(nn.Module):
     def forward(self, y_pred: torch.Tensor, y_true):
         # COMPATIBILITY MODIFICATION
         if len(y_pred.size()) == 3:
-            y_pred = y_pred.unsqueeze(3)
-            y_pred = torch.cat([1 - y_pred, y_pred], 3)
+            y_pred = y_pred.unsqueeze(1)
+            y_pred = torch.cat([1 - y_pred, y_pred], 1)
         if len(y_true.size()) == 3:
-            y_true = y_true.unsqueeze(3)
-            y_true = torch.cat([1 - y_true, y_true], 3)
+            y_true = y_true.unsqueeze(1)
+            y_true = torch.cat([1 - y_true, y_true], 1)
         # END MODIFICATION
 
         # Obtain Asymmetric Focal Tversky loss

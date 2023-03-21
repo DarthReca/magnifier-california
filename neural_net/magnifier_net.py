@@ -7,11 +7,11 @@ import torch
 import torch.nn as nn
 import torchmetrics
 import torchvision.transforms.functional as TF
-from transformers import SegformerConfig, SegformerDecodeHead, SegformerModel
-from unet import UNetDecoder, UNetEncoder
-
 import utils
 from loss import AsymmetricUnifiedFocalLoss
+from transformers import SegformerConfig, SegformerDecodeHead, SegformerModel
+
+from .unet import UNetDecoder, UNetEncoder
 
 
 class MagnifierNet(pl.LightningModule):
@@ -62,15 +62,17 @@ class MagnifierNet(pl.LightningModule):
         # Metrics
         self.test_metrics = torchmetrics.MetricCollection(
             [
-                torchmetrics.JaccardIndex(num_classes=2, reduction="none"),
+                torchmetrics.JaccardIndex(
+                    "multiclass", num_classes=2, reduction="none"
+                ),
                 torchmetrics.F1Score(
-                    num_classes=2, average="none", mdmc_average="global"
+                    "multiclass", num_classes=2, average="none", mdmc_average="global"
                 ),
                 torchmetrics.Precision(
-                    num_classes=2, average="none", mdmc_average="global"
+                    "multiclass", num_classes=2, average="none", mdmc_average="global"
                 ),
                 torchmetrics.Recall(
-                    num_classes=2, average="none", mdmc_average="global"
+                    "multiclass", num_classes=2, average="none", mdmc_average="global"
                 ),
             ]
         )
@@ -178,9 +180,8 @@ class MagnifierNet(pl.LightningModule):
         self.big_net = SegformerModel(config)
         self.small_net = SegformerModel(config)
 
-        self.head = SegformerDecodeHead(
-            config, hidden_size=[h * 2 for h in config.hidden_size]
-        )
+        config.hidden_sizes = [h * 2 for h in config.hidden_sizes]
+        self.head = SegformerDecodeHead(config)
 
         self.postprocess = lambda x: nn.functional.interpolate(
             x, size=big_patch_size, mode="bilinear", align_corners=False

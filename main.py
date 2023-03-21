@@ -8,15 +8,14 @@ import comet_ml
 import hydra
 import pytorch_lightning as pl
 import pytorch_lightning.loggers as loggers
-from hydra.utils import instantiate
-from omegaconf import DictConfig
-
 import utils
+from hydra.utils import instantiate
 from lightning_modules import CaliforniaDataModule
 from neural_net import MagnifierNet
+from omegaconf import DictConfig
 
 
-@hydra.main(config_path="configs", config_name="train")
+@hydra.main(version_base=None, config_path="configs", config_name="train")
 def main(cfg: DictConfig):
     # Set common seed
     pl.seed_everything(47, True)
@@ -25,7 +24,9 @@ def main(cfg: DictConfig):
     # Create model
     pl_model = instantiate(cfg["model"])
     # Setup logger
-    logger = loggers.CometLogger(**cfg["logger"], experiment_name=cfg["model"]["name"])
+    logger = loggers.CometLogger(
+        **cfg["logger"], experiment_name=pl_model.__class__.__name__
+    )
     # Setup checkpoint callback
     checkpoint_callback = pl.callbacks.ModelCheckpoint(
         monitor="val_loss",
@@ -41,11 +42,18 @@ def main(cfg: DictConfig):
     )
     # Setup learning rate logger
     lr_logger = pl.callbacks.LearningRateMonitor(logging_interval="step")
+    # Setup model summary caallback
+    model_summary_callback = pl.callbacks.RichModelSummary()
     # Setup trainer
     trainer = pl.Trainer(
         **cfg["trainer"],
         logger=logger,
-        callbacks=[checkpoint_callback, early_stopping_callback, lr_logger],
+        callbacks=[
+            checkpoint_callback,
+            early_stopping_callback,
+            lr_logger,
+            model_summary_callback,
+        ],
     )
 
     if "train" == cfg.mode:
