@@ -7,9 +7,13 @@ import torch
 import torch.nn as nn
 import torchmetrics
 import torchvision.transforms.functional as TF
+from segmentation_models_pytorch.base import SegmentationHead
+from segmentation_models_pytorch.decoders.deeplabv3.decoder import DeepLabV3PlusDecoder
+from segmentation_models_pytorch.encoders import get_encoder
+from transformers import SegformerConfig, SegformerDecodeHead, SegformerModel
+
 import utils
 from loss import AsymmetricUnifiedFocalLoss
-from transformers import SegformerConfig, SegformerDecodeHead, SegformerModel
 
 from .unet import UNetDecoder, UNetEncoder
 
@@ -200,4 +204,17 @@ class MagnifierNet(pl.LightningModule):
             num_classes=num_classes,
             n_channels=2048,
         )
+        self.postprocess = lambda x: x
+
+    def _deeplabv3plus_init(self, num_classes: int = 2, channels: int = 12):
+        self.big_net = get_encoder()
+        self.small_net = get_encoder()
+
+        self.head = DeepLabV3PlusDecoder(
+            encoder_channels=self.encoder.out_channels,
+            out_channels=256,
+            atrous_rates=(12, 24, 36),
+            output_stride=16,
+        )
+
         self.postprocess = lambda x: x
