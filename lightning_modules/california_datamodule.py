@@ -1,7 +1,9 @@
+import logging
 import os
 from glob import glob
 from itertools import chain
-from typing import Any, Dict, List, Optional
+from multiprocessing import Pool
+from typing import Any, Dict, List, Optional, Set
 
 import h5py
 import hdf5plugin
@@ -10,6 +12,7 @@ import pytorch_lightning as pl
 import skimage.util as util
 import torch
 from dict_transforms import ToTensor
+from numpy.typing import NDArray
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
@@ -56,6 +59,7 @@ class CaliforniaDataModule(pl.LightningDataModule):
                 fold_list=self.assigned_folds["train"],
                 attributes_filter=self.hparams["comments_filter"],
                 debug=self.hparams["debug"],
+                parallel_workers=self.hparams["parallel_workers"],
             )
 
         if stage in ("fit", "validate", None):
@@ -68,6 +72,7 @@ class CaliforniaDataModule(pl.LightningDataModule):
                 fold_list=self.assigned_folds["val"],
                 attributes_filter=self.hparams["comments_filter"],
                 debug=self.hparams["debug"],
+                parallel_workers=self.hparams["parallel_workers"],
             )
 
         if stage in ("test", None):
@@ -80,6 +85,7 @@ class CaliforniaDataModule(pl.LightningDataModule):
                 fold_list=self.assigned_folds["test"],
                 attributes_filter=self.hparams["comments_filter"],
                 debug=self.hparams["debug"],
+                parallel_workers=self.hparams["parallel_workers"],
             )
 
     def train_dataloader(self):
@@ -123,6 +129,7 @@ class HDF5CaliforniaDataset(Dataset):
         pre_available: bool = False,
         attributes_filter: List[int] = [],
         debug: bool = False,
+        parallel_workers: int = 4,
     ):
         # Assert validity
         if mode not in ["post", "prepost"]:
@@ -133,79 +140,25 @@ class HDF5CaliforniaDataset(Dataset):
         # No folder list provided
         if fold_list is None or len(fold_list) == 0:
             fold_list = list(range(5))
-        fold_list = set([str(x) for x in fold_list])
         # Load all patches
-        try:
-            for dataset_file in glob(f"{hdf5_folder}/*.hdf5"):
-                with h5py.File(dataset_file, "r") as dataset:
-                    for fold in fold_list & set(dataset.keys()):
-                        for uid in dataset[fold].keys():
-                            matrices = dict(dataset[fold][uid].items())
-                            # Filter
-                            comments = [
-                                int(c)
-                                for c in str(
-                                    matrices["post_fire"].attrs["comments"]
-                                ).split("-")
-                                if c.isnumeric()
-                            ]
-                            if set(comments) & set(attributes_filter):
-                                continue
-                            if "pre_fire" not in matrices and (
-                                pre_available or mode == "prepost"
-                            ):
-                                continue
-                            if mode != "prepost":
-                                matrices.pop("pre_fire", None)
-                            mask = matrices.pop("mask")[...]
-                            # Init
-                            img = np.concatenate(
-                                list(matrices.values())
-                                + [mask.reshape(*mask.shape, 1)],
-                                axis=-1,
-                            )
-                            img_size = img.shape[0]
-                            usable_size = img_size // patch_size * patch_size
-                            overlapping_start = img_size - patch_size
-                            # Portioning
-                            to_cut = img[:usable_size, :usable_size]
-                            last_row = img[overlapping_start:, :usable_size]
-                            last_column = img[:usable_size, overlapping_start:]
-                            last_crop = img[
-                                overlapping_start:img_size, overlapping_start:img_size
-                            ]
-                            # Crop
-                            wanted_crop_size = (patch_size, patch_size, img.shape[-1])
-                            last_row = util.view_as_blocks(last_row, wanted_crop_size)
-                            last_column = util.view_as_blocks(
-                                last_column, wanted_crop_size
-                            )
-                            crops = util.view_as_blocks(to_cut, wanted_crop_size)
-                            # Reshaping
-                            crops = crops.reshape(
-                                crops.shape[0] * crops.shape[1], *wanted_crop_size
-                            )
-                            last_row = last_row.reshape(
-                                last_row.shape[1], *wanted_crop_size
-                            )
-                            last_column = last_column.reshape(
-                                last_column.shape[0], *wanted_crop_size
-                            )
-                            last_crop = last_crop.reshape(1, *last_crop.shape)
-                            # Merge
-                            merged = np.concatenate(
-                                [crops, last_column, last_row, last_crop]
-                            )
-                            if keep_burned_only:
-                                merged = merged[
-                                    merged[:, :, :, -1].sum(axis=(1, 2)) > 0
-                                ]
-                            self.patches.append(merged)
-                            if debug and len(self.patches) > 2:
-                                raise StopIteration()
-        except StopIteration:
-            pass
-        self.patches = np.concatenate(self.patches)
+        with Pool(parallel_workers) as p:
+            self.patches = p.starmap(
+                _get_patches,
+                [
+                    (
+                        set(fold_list),
+                        hdf5_file,
+                        patch_size,
+                        mode,
+                        pre_available,
+                        attributes_filter,
+                        keep_burned_only,
+                        debug,
+                    )
+                    for hdf5_file in glob(f"{hdf5_folder}/*.hdf5")
+                ],
+            )
+        self.patches = np.concatenate(list(chain.from_iterable(self.patches)))
         print(f"Dataset len = {self.patches.shape[0]}")
 
     def __getitem__(self, item):
@@ -218,3 +171,80 @@ class HDF5CaliforniaDataset(Dataset):
 
     def __len__(self):
         return self.patches.shape[0]
+
+
+def _get_patches(
+    folds: Set[int],
+    hdf5_file: str,
+    patch_size: int,
+    mode: str,
+    pre_available: bool,
+    attributes_filter: List[int],
+    keep_burned_only: bool,
+    debug: bool,
+) -> List[NDArray]:
+    # Assert validity
+    if mode not in ["post", "prepost"]:
+        raise ValueError("mode must be post or prepost")
+    # Convert to string for consistency
+    folds = set([str(x) for x in folds])
+    # Load dataset
+    dataset = h5py.File(hdf5_file, "r")
+
+    patches = []
+    elements = [
+        dict(dataset[f"{f}/{k}"])
+        for f in folds & set(dataset.keys())
+        for k in dataset[f].keys()
+    ]
+    for sample in elements:
+        # Filter
+        comments = [
+            int(c)
+            for c in str(sample["post_fire"].attrs["comments"]).split("-")
+            if c.isnumeric()
+        ]
+        if set(comments) & set(attributes_filter):
+            continue
+        if "pre_fire" not in sample and (pre_available or mode == "prepost"):
+            continue
+        if mode != "prepost":
+            sample.pop("pre_fire", None)
+        mask = sample.pop("mask")[...]
+        # Init
+        img = np.concatenate(
+            list(sample.values()) + [mask.reshape(*mask.shape, 1)],
+            axis=-1,
+        )
+        img_size = img.shape[0]
+        usable_size = img_size // patch_size * patch_size
+        overlapping_start = img_size - patch_size
+        # Portioning
+        to_cut = img[:usable_size, :usable_size]
+        last_row = img[overlapping_start:, :usable_size]
+        last_column = img[:usable_size, overlapping_start:]
+        last_crop = img[overlapping_start:img_size, overlapping_start:img_size]
+        # Crop
+        wanted_crop_size = (patch_size, patch_size, img.shape[-1])
+        last_row = util.view_as_blocks(last_row, wanted_crop_size)
+        last_column = util.view_as_blocks(last_column, wanted_crop_size)
+        crops = util.view_as_blocks(to_cut, wanted_crop_size)
+        # Reshaping
+        crops = crops.reshape(crops.shape[0] * crops.shape[1], *wanted_crop_size)
+        last_row = last_row.reshape(last_row.shape[1], *wanted_crop_size)
+        last_column = last_column.reshape(last_column.shape[0], *wanted_crop_size)
+        last_crop = last_crop.reshape(1, *last_crop.shape)
+        # Merge
+        merged = np.concatenate([crops, last_column, last_row, last_crop])
+        if keep_burned_only:
+            merged = merged[merged[:, :, :, -1].sum(axis=(1, 2)) > 0]
+
+        patches.append(merged)
+        # Debug
+        if debug and len(patches) > 2:
+            break
+
+    # Close dataset
+    dataset.close()
+
+    return patches

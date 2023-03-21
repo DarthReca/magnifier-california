@@ -1,6 +1,9 @@
+import matplotlib.pyplot as plt
 import pytorch_lightning as pl
 import torch
-import torchmetrics
+import torchmetrics as tm
+import torchvision.utils as vutils
+import utils
 from loss import AsymmetricUnifiedFocalLoss
 from torch.nn import functional as F
 from transformers import SegformerConfig, SegformerForSemanticSegmentation
@@ -22,22 +25,19 @@ class Segformer(pl.LightningModule):
         self.size = final_size
         self.loss = AsymmetricUnifiedFocalLoss(0.5, 0.6, 0.1)
         # Metrics
-        self.test_metrics = torchmetrics.MetricCollection(
-            [
-                torchmetrics.JaccardIndex(
-                    "multiclass", num_classes=2, reduction="none"
-                ),
-                torchmetrics.F1Score(
-                    "multiclass", num_classes=2, average="none", mdmc_average="global"
-                ),
-                torchmetrics.Precision(
-                    "multiclass", num_classes=2, average="none", mdmc_average="global"
-                ),
-                torchmetrics.Recall(
-                    "multiclass", num_classes=2, average="none", mdmc_average="global"
-                ),
-            ]
+        self.test_iou = tm.ClasswiseWrapper(
+            tm.JaccardIndex("multiclass", num_classes=2, average="none")
         )
+        self.test_f1 = tm.ClasswiseWrapper(
+            tm.F1Score(
+                "multiclass",
+                num_classes=2,
+                average="none",
+                multidim_average="global",
+            )
+        )
+
+        self.batch_to_log = [0, 5]
 
     def forward(self, x):
         x = self.model(x).logits
@@ -75,7 +75,78 @@ class Segformer(pl.LightningModule):
         out = self(images)
         out = torch.softmax(out, dim=1)
         loss = self.loss(out, masks)
-        self.test_metrics(out, masks)
+
+        self.test_iou(out, masks)
+        self.test_f1(out, masks)
+
         self.log("test_loss", loss)
-        self.log_dict(self.test_metrics)
+        self.log_dict(self.test_iou)
+        self.log_dict(self.test_f1)
+
+        if batch_idx in self.batch_to_log:
+            self._log_images(
+                images,
+                masks,
+                out.argmax(dim=1),
+                out,
+                prefix="test",
+                draw_rgb=True,
+                draw_heatmap=True,
+            )
         return loss
+
+    def _log_images(
+        self,
+        images: torch.Tensor,
+        masks: torch.Tensor,
+        pred_mask: torch.Tensor,
+        logits: torch.Tensor,
+        prefix: str = "",
+        draw_rgb: bool = False,
+        draw_heatmap: bool = False,
+    ):
+        images_count = images.size()[0]
+        rgb_indexes = (3, 2, 1)
+        for i in range(images_count):
+            collection = {}
+            gt = (masks[i].squeeze() > 0).byte().cpu()
+            pr = (pred_mask[i].squeeze() > 0).byte().cpu()
+            if draw_rgb:
+                img = utils.extract_rgb(images[i], rgb_indexes).cpu()
+                collection["original image"] = (img, None)
+                if images[i].size()[0] > 12:
+                    pre = utils.extract_rgb(images[i][12:], rgb_indexes).cpu()
+                    collection["pre image"] = (pre, None)
+                collection["ground truth with image"] = (
+                    vutils.draw_segmentation_masks(img, gt.bool(), colors=["red"]),
+                    None,
+                )
+                collection["prediction with image"] = (
+                    vutils.draw_segmentation_masks(img, pr.bool(), colors=["red"]),
+                    None,
+                )
+            if draw_heatmap:
+                collection["prediction heatmap"] = (
+                    logits[i][1].unsqueeze(0).cpu(),
+                    "viridis",
+                )
+            collection["ground truth mask"] = (gt.unsqueeze(0), "gray")
+            collection["prediction mask"] = (pr.unsqueeze(0), "gray")
+            collection = {
+                k: (v.permute(1, 2, 0).numpy(), cmap)
+                for k, (v, cmap) in collection.items()
+            }
+            if hasattr(self.logger.experiment, "log_image"):
+                figure, axs = plt.subplots(ncols=len(collection), figsize=(20, 20))
+                figure.tight_layout()
+                for ax, (k, (v, cmap)) in zip(axs, collection.items()):
+                    ax.imshow(v, cmap=cmap)
+                    ax.set_yticks([])
+                    ax.set_xticks([])
+                    ax.set_title(k, {"fontsize": 15})
+                self.logger.experiment.log_figure(
+                    figure=figure,
+                    figure_name=f"{prefix}S{self.global_step}N{i}",
+                    step=self.global_step,
+                )
+                plt.close()

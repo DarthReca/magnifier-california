@@ -38,7 +38,7 @@ def main(cfg: DictConfig):
     )
     # Setup early stopping callback
     early_stopping_callback = pl.callbacks.EarlyStopping(
-        monitor="val_loss", patience=10, mode="min"
+        monitor="val_loss", patience=50, mode="min"
     )
     # Setup learning rate logger
     lr_logger = pl.callbacks.LearningRateMonitor(logging_interval="step")
