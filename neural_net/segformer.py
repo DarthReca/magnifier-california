@@ -25,16 +25,20 @@ class Segformer(pl.LightningModule):
         self.size = final_size
         self.loss = AsymmetricUnifiedFocalLoss(0.5, 0.6, 0.1)
         # Metrics
-        self.test_iou = tm.ClasswiseWrapper(
-            tm.JaccardIndex("multiclass", num_classes=2, average="none")
-        )
-        self.test_f1 = tm.ClasswiseWrapper(
-            tm.F1Score(
-                "multiclass",
-                num_classes=2,
-                average="none",
-                multidim_average="global",
-            )
+        self.test_metrics = tm.MetricCollection(
+            {
+                "IoU": tm.ClasswiseWrapper(
+                    tm.JaccardIndex("multiclass", num_classes=2, average="none")
+                ),
+                "F1Score": tm.ClasswiseWrapper(
+                    tm.F1Score(
+                        "multiclass",
+                        num_classes=2,
+                        average="none",
+                        multidim_average="global",
+                    )
+                ),
+            }
         )
 
         self.batch_to_log = [0, 5]
@@ -74,14 +78,8 @@ class Segformer(pl.LightningModule):
         masks = masks.squeeze(1)
         out = self(images)
         out = torch.softmax(out, dim=1)
-        loss = self.loss(out, masks)
 
-        self.test_iou(out, masks)
-        self.test_f1(out, masks)
-
-        self.log("test_loss", loss)
-        self.log_dict(self.test_iou)
-        self.log_dict(self.test_f1)
+        self.test_metrics.update(out, masks)
 
         if batch_idx in self.batch_to_log:
             self._log_images(
@@ -93,7 +91,10 @@ class Segformer(pl.LightningModule):
                 draw_rgb=True,
                 draw_heatmap=True,
             )
-        return loss
+
+    def on_test_epoch_end(self):
+        self.log_dict(self.test_metrics.compute())
+        self.test_metrics.reset()
 
     def _log_images(
         self,
