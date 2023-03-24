@@ -4,10 +4,9 @@ import segmentation_models_pytorch as smp
 import torch
 import torchmetrics as tm
 import torchvision.utils as vutils
-from torch.nn import functional as F
-
 import utils
 from loss import AsymmetricUnifiedFocalLoss
+from torch.nn import functional as F
 
 
 class DeepLabV3Plus(pl.LightningModule):
@@ -19,7 +18,7 @@ class DeepLabV3Plus(pl.LightningModule):
     ) -> None:
         super().__init__()
         self.model = smp.DeepLabV3Plus(
-            encoder_name="resnet18",
+            encoder_name=encoder_name,
             encoder_weights=None,
             in_channels=n_channels,
             classes=n_classes,

@@ -1,1 +1,1 @@
-from .conversions import crop_image, extract_rgb, recompose_image
+from .conversions import crop_image, draw_figure, extract_rgb, recompose_image

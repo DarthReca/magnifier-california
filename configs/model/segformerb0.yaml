@@ -1,5 +1,5 @@
 ---
 _target_: neural_net.Segformer
-num_classes: 2
-channels: 12
+n_classes: 2
+n_channels: 12
 config_name: "nvidia/mit-b0"
