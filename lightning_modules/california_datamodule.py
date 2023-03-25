@@ -189,62 +189,58 @@ def _get_patches(
     # Convert to string for consistency
     folds = set([str(x) for x in folds])
     # Load dataset
-    dataset = h5py.File(hdf5_file, "r")
-
-    patches = []
-    elements = [
-        dict(dataset[f"{f}/{k}"])
-        for f in folds & set(dataset.keys())
-        for k in dataset[f].keys()
-    ]
-    for sample in elements:
-        # Filter
-        comments = [
-            int(c)
-            for c in str(sample["post_fire"].attrs["comments"]).split("-")
-            if c.isnumeric()
+    with h5py.File(hdf5_file, "r") as dataset:
+        patches = []
+        elements = [
+            dict(dataset[f"{f}/{k}"])
+            for f in folds & set(dataset.keys())
+            for k in dataset[f].keys()
         ]
-        if set(comments) & set(attributes_filter):
-            continue
-        if "pre_fire" not in sample and (pre_available or mode == "prepost"):
-            continue
-        if mode != "prepost":
-            sample.pop("pre_fire", None)
-        mask = sample.pop("mask")[...]
-        # Init
-        img = np.concatenate(
-            list(sample.values()) + [mask.reshape(*mask.shape, 1)],
-            axis=-1,
-        )
-        img_size = img.shape[0]
-        usable_size = img_size // patch_size * patch_size
-        overlapping_start = img_size - patch_size
-        # Portioning
-        to_cut = img[:usable_size, :usable_size]
-        last_row = img[overlapping_start:, :usable_size]
-        last_column = img[:usable_size, overlapping_start:]
-        last_crop = img[overlapping_start:img_size, overlapping_start:img_size]
-        # Crop
-        wanted_crop_size = (patch_size, patch_size, img.shape[-1])
-        last_row = util.view_as_blocks(last_row, wanted_crop_size)
-        last_column = util.view_as_blocks(last_column, wanted_crop_size)
-        crops = util.view_as_blocks(to_cut, wanted_crop_size)
-        # Reshaping
-        crops = crops.reshape(crops.shape[0] * crops.shape[1], *wanted_crop_size)
-        last_row = last_row.reshape(last_row.shape[1], *wanted_crop_size)
-        last_column = last_column.reshape(last_column.shape[0], *wanted_crop_size)
-        last_crop = last_crop.reshape(1, *last_crop.shape)
-        # Merge
-        merged = np.concatenate([crops, last_column, last_row, last_crop])
-        if keep_burned_only:
-            merged = merged[merged[:, :, :, -1].sum(axis=(1, 2)) > 0]
+        for sample in elements:
+            # Filter
+            comments = [
+                int(c)
+                for c in str(sample["post_fire"].attrs["comments"]).split("-")
+                if c.isnumeric()
+            ]
+            if set(comments) & set(attributes_filter):
+                continue
+            if "pre_fire" not in sample and (pre_available or mode == "prepost"):
+                continue
+            if mode != "prepost":
+                sample.pop("pre_fire", None)
+            mask = sample.pop("mask")[...]
+            # Init
+            img = np.concatenate(
+                list(sample.values()) + [mask.reshape(*mask.shape, 1)],
+                axis=-1,
+            )
+            img_size = img.shape[0]
+            usable_size = img_size // patch_size * patch_size
+            overlapping_start = img_size - patch_size
+            # Portioning
+            to_cut = img[:usable_size, :usable_size]
+            last_row = img[overlapping_start:, :usable_size]
+            last_column = img[:usable_size, overlapping_start:]
+            last_crop = img[overlapping_start:img_size, overlapping_start:img_size]
+            # Crop
+            wanted_crop_size = (patch_size, patch_size, img.shape[-1])
+            last_row = util.view_as_blocks(last_row, wanted_crop_size)
+            last_column = util.view_as_blocks(last_column, wanted_crop_size)
+            crops = util.view_as_blocks(to_cut, wanted_crop_size)
+            # Reshaping
+            crops = crops.reshape(crops.shape[0] * crops.shape[1], *wanted_crop_size)
+            last_row = last_row.reshape(last_row.shape[1], *wanted_crop_size)
+            last_column = last_column.reshape(last_column.shape[0], *wanted_crop_size)
+            last_crop = last_crop.reshape(1, *last_crop.shape)
+            # Merge
+            merged = np.concatenate([crops, last_column, last_row, last_crop])
+            if keep_burned_only:
+                merged = merged[merged[:, :, :, -1].sum(axis=(1, 2)) > 0]
 
-        patches.append(merged)
-        # Debug
-        if debug and len(patches) > 2:
-            break
-
-    # Close dataset
-    dataset.close()
+            patches.append(merged)
+            # Debug
+            if debug and len(patches) > 2:
+                break
 
     return patches
