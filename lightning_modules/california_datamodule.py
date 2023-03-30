@@ -3,7 +3,7 @@ import os
 from glob import glob
 from itertools import chain
 from multiprocessing import Pool
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Literal, Optional, Set
 
 import h5py
 import hdf5plugin
@@ -11,9 +11,9 @@ import numpy as np
 import pytorch_lightning as pl
 import skimage.util as util
 import torch
-from dict_transforms import ToTensor
 from numpy.typing import NDArray
 from torch.utils.data import DataLoader, Dataset
+from torchvision.transforms import ToTensor
 from tqdm import tqdm
 
 
@@ -25,8 +25,8 @@ class CaliforniaDataModule(pl.LightningDataModule):
         # Create folders sets
         val_fold = (self.hparams["test_set"] + 1) % 5
 
-        self.train_transforms = [ToTensor()]
-        self.test_transforms = [ToTensor()]
+        self.train_transforms = []
+        self.test_transforms = []
 
         self.train_dataset = None
         self.val_dataset = None
@@ -50,6 +50,7 @@ class CaliforniaDataModule(pl.LightningDataModule):
 
     def setup(self, stage: Optional[str] = None) -> None:
         if stage in ("fit", None):
+            """
             self.train_dataset = HDF5CaliforniaDataset(
                 self.root,
                 transforms=self.train_transforms,
@@ -61,8 +62,17 @@ class CaliforniaDataModule(pl.LightningDataModule):
                 debug=self.hparams["debug"],
                 parallel_workers=self.hparams["parallel_workers"],
             )
+            """
+            self.train_dataset = PrePatchedDataset(
+                self.root,
+                transforms=self.train_transforms,
+                mode=self.hparams["mode"],
+                fold_list=self.assigned_folds["train"],
+                attributes_filter=self.hparams["comments_filter"],
+            )
 
         if stage in ("fit", "validate", None):
+            """
             self.val_dataset = HDF5CaliforniaDataset(
                 self.root,
                 transforms=self.test_transforms,
@@ -74,8 +84,17 @@ class CaliforniaDataModule(pl.LightningDataModule):
                 debug=self.hparams["debug"],
                 parallel_workers=self.hparams["parallel_workers"],
             )
+            """
+            self.val_dataset = PrePatchedDataset(
+                self.root,
+                transforms=self.test_transforms,
+                mode=self.hparams["mode"],
+                fold_list=self.assigned_folds["val"],
+                attributes_filter=self.hparams["comments_filter"],
+            )
 
         if stage in ("test", None):
+            """
             self.test_dataset = HDF5CaliforniaDataset(
                 self.root,
                 transforms=self.test_transforms,
@@ -86,6 +105,14 @@ class CaliforniaDataModule(pl.LightningDataModule):
                 attributes_filter=self.hparams["comments_filter"],
                 debug=self.hparams["debug"],
                 parallel_workers=self.hparams["parallel_workers"],
+            )
+            """
+            self.test_dataset = PrePatchedDataset(
+                self.root,
+                transforms=self.test_transforms,
+                mode=self.hparams["mode"],
+                fold_list=self.assigned_folds["test"],
+                attributes_filter=self.hparams["comments_filter"],
             )
 
     def train_dataloader(self):
@@ -115,6 +142,59 @@ class CaliforniaDataModule(pl.LightningDataModule):
             pin_memory=True,
             drop_last=False,
         )
+
+
+class PrePatchedDataset(Dataset):
+    def __init__(
+        self,
+        hdf5_file: str,
+        mode: Literal["post", "prepost"],
+        folds: Set[int],
+        attributes_filter: Set[int],
+        transforms=None,
+    ) -> None:
+        if mode not in ("post", "prepost"):
+            raise ValueError(f"Invalid mode: {mode}")
+        super().__init__()
+        self.transforms = transforms
+        self.final_transforms = ToTensor()
+
+        self.post = []
+        self.pre = []
+        self.masks = []
+        self.names = []
+        # Read hdf5 file and filter by fold and attributes
+        with h5py.File(hdf5_file, "r") as f:
+            for uuid, values in f.items():
+                comments = set(values.attrs["comments"].tolist())
+                if values.attrs["fold"] not in folds and comments & attributes_filter:
+                    continue
+
+                self.post.append(values["post_fire"][...])
+                if mode == "prepost":
+                    self.pre.append(values["pre_fire"][...])
+                self.masks.append(values["mask"][...])
+                self.names.append(uuid)
+
+        # Convert to numpy arrays
+        self.post = np.stack(self.post, axis=0)
+        self.pre = np.stack(self.pre, axis=0) if mode == "prepost" else None
+        self.masks = np.stack(self.masks, axis=0)
+
+    def __len__(self) -> int:
+        return self.masks.shape[0]
+
+    def __getitem__(self, index: int) -> Any:
+        if self.transforms is not None:
+            pass  # TODO: Implement other transforms
+        result = {
+            "name": self.names[index],
+            "post": torch.from_numpy(self.post[index]).transpose(2, 0, 1),
+            "mask": torch.from_numpy(self.masks[index]).transpose(2, 0, 1),
+        }
+        if self.pre:
+            result["pre"] = torch.from_numpy(self.pre[index]).transpose(2, 0, 1)
+        return result
 
 
 class HDF5CaliforniaDataset(Dataset):
@@ -244,3 +324,12 @@ def _get_patches(
                 break
 
     return patches
+
+
+if __name__ == "__main__":
+    dataset = PrePatchedDataset(
+        "../../california_burned_areas/only_burned/burned_512x512.hdf5",
+        "post",
+        set(range(5)),
+        [],
+    )

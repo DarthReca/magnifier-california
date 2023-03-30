@@ -48,8 +48,8 @@ def draw_figure(
 ):
     rgb_indexes = (3, 2, 1)
 
-    masks = masks.byte().cpu() > 0
-    pred_mask = pred_mask.byte().cpu() > 0
+    masks = (masks.byte().cpu() > 0).unsqueeze(1)
+    pred_mask = (pred_mask.byte().cpu() > 0).unsqueeze(1)
     images = (
         (images[:, rgb_indexes] * 255).cpu().byte().round()
         if images is not None

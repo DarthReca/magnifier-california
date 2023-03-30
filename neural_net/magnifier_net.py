@@ -5,15 +5,14 @@ from typing import Dict, List, Optional, Tuple
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
-import torchmetrics
+import torchmetrics as tm
 import torchvision.transforms.functional as TF
+import utils
+from loss import AsymmetricUnifiedFocalLoss
 from segmentation_models_pytorch.base import SegmentationHead
 from segmentation_models_pytorch.decoders.deeplabv3.decoder import DeepLabV3PlusDecoder
 from segmentation_models_pytorch.encoders import get_encoder
 from transformers import SegformerConfig, SegformerDecodeHead, SegformerModel
-
-import utils
-from loss import AsymmetricUnifiedFocalLoss
 
 from .unet import UNetDecoder, UNetEncoder
 
@@ -45,7 +44,7 @@ class MagnifierNet(pl.LightningModule):
         channels: int = 12,
     ):
         super().__init__()
-        if model not in ["segformer", "unet"]:
+        if model not in ["segformer", "unet", "deeplabv3plus"]:
             raise ValueError("Model not supported")
         # Nets
         self.big_net = None
@@ -57,29 +56,32 @@ class MagnifierNet(pl.LightningModule):
         if model == "segformer":
             self._segformer_init(num_classes, channels, big_patch_size)
         elif model == "unet":
-            self._unet_init(num_classes, channels, big_patch_size)
+            self._unet_init(num_classes, channels)
+        elif model == "deeplabv3plus":
+            self._deeplabv3plus_init(num_classes, channels)
 
         # Parameters init
         self.small_patch_size = small_patch_size
         # Loss
         self.loss = AsymmetricUnifiedFocalLoss(0.5, 0.6, 0.1)
         # Metrics
-        self.test_metrics = torchmetrics.MetricCollection(
-            [
-                torchmetrics.JaccardIndex(
-                    "multiclass", num_classes=2, reduction="none"
+        self.test_metrics = tm.MetricCollection(
+            {
+                "IoU": tm.ClasswiseWrapper(
+                    tm.JaccardIndex("multiclass", num_classes=2, average="none")
                 ),
-                torchmetrics.F1Score(
-                    "multiclass", num_classes=2, average="none", mdmc_average="global"
+                "F1Score": tm.ClasswiseWrapper(
+                    tm.F1Score(
+                        "multiclass",
+                        num_classes=2,
+                        average="none",
+                        multidim_average="global",
+                    )
                 ),
-                torchmetrics.Precision(
-                    "multiclass", num_classes=2, average="none", mdmc_average="global"
-                ),
-                torchmetrics.Recall(
-                    "multiclass", num_classes=2, average="none", mdmc_average="global"
-                ),
-            ]
+            }
         )
+
+        self.batch_to_log = [0, 5]
 
     def forward(self, x: torch.Tensor):
         # Forward all images to the net
@@ -125,14 +127,11 @@ class MagnifierNet(pl.LightningModule):
         }
 
     def training_step(self, batch, batch_idx):
-        masks, images = (
-            batch["mask"].float(),
-            batch["image"].float(),
-        )
+        masks, images = batch["mask"].float(), batch["image"].float()
         masks = masks.squeeze(1)
         # Forward
         out = self(images)
-        out = torch.sigmoid(out)
+        out = torch.softmax(out, dim=1)
         # Loss
         loss = self.loss(out, masks)
         # Log
@@ -140,14 +139,11 @@ class MagnifierNet(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        masks, images = (
-            batch["mask"].float(),
-            batch["image"].float(),
-        )
+        masks, images = batch["mask"].float(), batch["image"].float()
         masks = masks.squeeze(1)
         # Forward
         out = self(images)
-        out = torch.sigmoid(out)
+        out = torch.softmax(out, dim=1)
         # Loss
         loss = self.loss(out, masks)
         # Log
@@ -155,22 +151,24 @@ class MagnifierNet(pl.LightningModule):
         return loss
 
     def test_step(self, batch, batch_idx):
-        masks, images = (
-            batch["mask"].float(),
-            batch["image"].float(),
-        )
+        masks, images = batch["mask"].float(), batch["image"].float()
         masks = masks.squeeze(1)
-        # Forward
         out = self(images)
-        out = torch.sigmoid(out)
-        # Loss
-        loss = self.loss(out, masks)
-        # Metrics
-        self.test_metrics(out, masks)
-        # Log
-        self.log("test_loss", loss)
-        self.log_dict(self.test_metrics)
-        return loss
+        out = torch.softmax(out, dim=1)
+
+        self.test_metrics.update(out, masks)
+
+        if batch_idx in self.batch_to_log:
+            for i, figure in enumerate(utils.draw_figure(masks, out.argmax(dim=1))):
+                self.logger.experiment.log_figure(
+                    figure=figure,
+                    figure_name=f"testS{self.global_step}N{i}",
+                    step=self.global_step,
+                )
+
+    def on_test_epoch_end(self):
+        self.log_dict(self.test_metrics.compute())
+        self.test_metrics.reset()
 
     def _segformer_init(
         self, num_classes: int = 2, channels: int = 12, big_patch_size: int = 512
@@ -195,9 +193,7 @@ class MagnifierNet(pl.LightningModule):
             x, output_hidden_states=True
         )[1]
 
-    def _unet_init(
-        self, num_classes: int = 2, channels: int = 12, big_patch_size: int = 512
-    ):
+    def _unet_init(self, num_classes: int = 2, channels: int = 12):
         self.big_net = UNetEncoder(channels)
         self.small_net = UNetEncoder(channels)
         self.head = UNetDecoder(
@@ -207,14 +203,24 @@ class MagnifierNet(pl.LightningModule):
         self.postprocess = lambda x: x
 
     def _deeplabv3plus_init(self, num_classes: int = 2, channels: int = 12):
-        self.big_net = get_encoder()
-        self.small_net = get_encoder()
+        self.big_net = get_encoder("resnet18", in_channels=channels, output_stride=16)
+        self.small_net = get_encoder("resnet18", in_channels=channels, output_stride=16)
 
-        self.head = DeepLabV3PlusDecoder(
-            encoder_channels=self.encoder.out_channels,
+        decoder = DeepLabV3PlusDecoder(
+            encoder_channels=[c * 2 for c in self.small_net.out_channels],
             out_channels=256,
             atrous_rates=(12, 24, 36),
             output_stride=16,
         )
+
+        head = SegmentationHead(
+            in_channels=decoder.out_channels,
+            out_channels=num_classes,
+            kernel_size=1,
+            activation=None,
+            upsampling=4,
+        )
+
+        self.head = nn.Sequential(decoder, head)
 
         self.postprocess = lambda x: x
