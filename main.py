@@ -44,6 +44,8 @@ def main(cfg: DictConfig):
     lr_logger = pl.callbacks.LearningRateMonitor(logging_interval="step")
     # Setup model summary caallback
     model_summary_callback = pl.callbacks.RichModelSummary()
+    # Set learning rate finder
+    lr_finder = pl.callbacks.LearningRateFinder(max_lr=0.001)
     # Setup trainer
     trainer = pl.Trainer(
         **cfg["trainer"],
@@ -53,6 +55,7 @@ def main(cfg: DictConfig):
             early_stopping_callback,
             lr_logger,
             model_summary_callback,
+            # lr_finder,
         ],
     )
 

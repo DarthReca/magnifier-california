@@ -42,13 +42,14 @@ class Segformer(pl.LightningModule):
         )
 
         self.batch_to_log = [0, 5]
+        self.learning_rate = 0.0006
 
     def forward(self, x):
         x = self.model(x).logits
         return F.interpolate(x, size=self.size, mode="bilinear", align_corners=False)
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=0.0001)
+        optimizer = torch.optim.AdamW(self.parameters(), lr=self.learning_rate)
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=15, gamma=0.1)
         return {
             "optimizer": optimizer,
