@@ -61,6 +61,7 @@ def main(cfg: DictConfig):
         logger.experiment.log_model(
             "Best model", trainer.checkpoint_callback.best_model_path
         )
+        trainer.test(pl_model, datamodule=datamodule, ckpt_path="best")
     if "test" == cfg.mode:
         trainer.test(pl_model, datamodule=datamodule, ckpt_path=cfg.ckpt_path)
 

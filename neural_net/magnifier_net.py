@@ -119,7 +119,7 @@ class MagnifierNet(pl.LightningModule):
         return self.postprocess(out)
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=0.001)
+        optimizer = torch.optim.AdamW(self.parameters(), lr=0.0001)
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=15, gamma=0.1)
         return {
             "optimizer": optimizer,
@@ -127,7 +127,7 @@ class MagnifierNet(pl.LightningModule):
         }
 
     def training_step(self, batch, batch_idx):
-        masks, images = batch["mask"].float(), batch["image"].float()
+        masks, images = batch["mask"].float(), batch["post"].float()
         masks = masks.squeeze(1)
         # Forward
         out = self(images)
@@ -139,7 +139,7 @@ class MagnifierNet(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        masks, images = batch["mask"].float(), batch["image"].float()
+        masks, images = batch["mask"].float(), batch["post"].float()
         masks = masks.squeeze(1)
         # Forward
         out = self(images)
@@ -151,7 +151,7 @@ class MagnifierNet(pl.LightningModule):
         return loss
 
     def test_step(self, batch, batch_idx):
-        masks, images = batch["mask"].float(), batch["image"].float()
+        masks, images = batch["mask"].float(), batch["post"].float()
         masks = masks.squeeze(1)
         out = self(images)
         out = torch.softmax(out, dim=1)

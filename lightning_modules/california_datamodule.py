@@ -67,8 +67,8 @@ class CaliforniaDataModule(pl.LightningDataModule):
                 self.root,
                 transforms=self.train_transforms,
                 mode=self.hparams["mode"],
-                fold_list=self.assigned_folds["train"],
-                attributes_filter=self.hparams["comments_filter"],
+                folds=self.assigned_folds["train"],
+                attributes_filter=set(self.hparams["comments_filter"]),
             )
 
         if stage in ("fit", "validate", None):
@@ -89,8 +89,8 @@ class CaliforniaDataModule(pl.LightningDataModule):
                 self.root,
                 transforms=self.test_transforms,
                 mode=self.hparams["mode"],
-                fold_list=self.assigned_folds["val"],
-                attributes_filter=self.hparams["comments_filter"],
+                folds=self.assigned_folds["val"],
+                attributes_filter=set(self.hparams["comments_filter"]),
             )
 
         if stage in ("test", None):
@@ -111,8 +111,8 @@ class CaliforniaDataModule(pl.LightningDataModule):
                 self.root,
                 transforms=self.test_transforms,
                 mode=self.hparams["mode"],
-                fold_list=self.assigned_folds["test"],
-                attributes_filter=self.hparams["comments_filter"],
+                folds=self.assigned_folds["test"],
+                attributes_filter=set(self.hparams["comments_filter"]),
             )
 
     def train_dataloader(self):
@@ -163,11 +163,12 @@ class PrePatchedDataset(Dataset):
         self.pre = []
         self.masks = []
         self.names = []
+        print("Loading folds: ", folds)
         # Read hdf5 file and filter by fold and attributes
         with h5py.File(hdf5_file, "r") as f:
             for uuid, values in f.items():
                 comments = set(values.attrs["comments"].tolist())
-                if values.attrs["fold"] not in folds and comments & attributes_filter:
+                if values.attrs["fold"] not in folds or comments & attributes_filter:
                     continue
 
                 self.post.append(values["post_fire"][...])
@@ -177,9 +178,17 @@ class PrePatchedDataset(Dataset):
                 self.names.append(uuid)
 
         # Convert to numpy arrays
-        self.post = np.stack(self.post, axis=0)
-        self.pre = np.stack(self.pre, axis=0) if mode == "prepost" else None
-        self.masks = np.stack(self.masks, axis=0)
+        self.post = np.stack(self.post, axis=0, dtype=np.int32)
+        self.pre = (
+            np.stack(self.pre, axis=0, dtype=np.int32) if mode == "prepost" else None
+        )
+        self.masks = np.stack(self.masks, axis=0, dtype=np.int32)
+        print("Normalizing data")
+        # Normalize sentinel 2 data
+        self.post = self.post / 10000
+        if mode == "prepost":
+            self.pre = self.pre / 10000
+        print(f"Loaded {len(self)} patches")
 
     def __len__(self) -> int:
         return self.masks.shape[0]
@@ -189,11 +198,11 @@ class PrePatchedDataset(Dataset):
             pass  # TODO: Implement other transforms
         result = {
             "name": self.names[index],
-            "post": torch.from_numpy(self.post[index]).transpose(2, 0, 1),
-            "mask": torch.from_numpy(self.masks[index]).transpose(2, 0, 1),
+            "post": torch.from_numpy(self.post[index]).permute(2, 0, 1),
+            "mask": torch.from_numpy(self.masks[index]).permute(2, 0, 1),
         }
         if self.pre:
-            result["pre"] = torch.from_numpy(self.pre[index]).transpose(2, 0, 1)
+            result["pre"] = torch.from_numpy(self.pre[index]).permute(2, 0, 1)
         return result
 
 

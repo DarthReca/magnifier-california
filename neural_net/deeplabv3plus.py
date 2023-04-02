@@ -24,6 +24,22 @@ class DeepLabV3Plus(pl.LightningModule):
             classes=n_classes,
         )
         self.loss = AsymmetricUnifiedFocalLoss(0.5, 0.6, 0.1)
+        self.test_metrics = tm.MetricCollection(
+            {
+                "IoU": tm.ClasswiseWrapper(
+                    tm.JaccardIndex("multiclass", num_classes=2, average="none")
+                ),
+                "F1Score": tm.ClasswiseWrapper(
+                    tm.F1Score(
+                        "multiclass",
+                        num_classes=2,
+                        average="none",
+                        multidim_average="global",
+                    )
+                ),
+            }
+        )
+        self.batch_to_log = [0, 5]
 
     def forward(self, x):
         return self.model(x)
@@ -37,7 +53,7 @@ class DeepLabV3Plus(pl.LightningModule):
         }
 
     def training_step(self, batch, batch_idx):
-        masks, images = batch["mask"].float(), batch["image"].float()
+        masks, images = batch["mask"].float(), batch["post"].float()
         masks = masks.squeeze(1)
         out = self(images)
         out = torch.softmax(out, dim=1)
@@ -46,7 +62,7 @@ class DeepLabV3Plus(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        masks, images = batch["mask"].float(), batch["image"].float()
+        masks, images = batch["mask"].float(), batch["post"].float()
         masks = masks.squeeze(1)
         out = self(images)
         out = torch.softmax(out, dim=1)
@@ -55,19 +71,13 @@ class DeepLabV3Plus(pl.LightningModule):
         return loss
 
     def test_step(self, batch, batch_idx):
-        masks, images = batch["mask"].float(), batch["image"].float()
+        masks, images = batch["mask"].float(), batch["post"].float()
         masks = masks.squeeze(1)
         out = self(images)
         out = torch.softmax(out, dim=1)
         loss = self.loss(out, masks)
 
-        self.test_iou(out, masks)
-        self.test_f1(out, masks)
-
-        self.log("test_loss", loss)
-        self.log_dict(self.test_iou)
-        self.log_dict(self.test_f1)
-
+        self.test_metrics.update(out, masks)
         if batch_idx in self.batch_to_log:
             self._log_images(
                 images,
@@ -78,7 +88,10 @@ class DeepLabV3Plus(pl.LightningModule):
                 draw_rgb=True,
                 draw_heatmap=True,
             )
-        return loss
+
+    def on_test_epoch_end(self):
+        self.log_dict(self.test_metrics.compute())
+        self.test_metrics.reset()
 
     def _log_images(
         self,

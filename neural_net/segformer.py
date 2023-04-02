@@ -48,7 +48,7 @@ class Segformer(pl.LightningModule):
         return F.interpolate(x, size=self.size, mode="bilinear", align_corners=False)
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=0.001)
+        optimizer = torch.optim.AdamW(self.parameters(), lr=0.0001)
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=15, gamma=0.1)
         return {
             "optimizer": optimizer,
@@ -56,7 +56,7 @@ class Segformer(pl.LightningModule):
         }
 
     def training_step(self, batch, batch_idx):
-        masks, images = batch["mask"].float(), batch["image"].float()
+        masks, images = batch["mask"].float(), batch["post"].float()
         masks = masks.squeeze(1)
         out = self(images)
         out = torch.softmax(out, dim=1)
@@ -65,7 +65,7 @@ class Segformer(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        masks, images = batch["mask"].float(), batch["image"].float()
+        masks, images = batch["mask"].float(), batch["post"].float()
         masks = masks.squeeze(1)
         out = self(images)
         out = torch.softmax(out, dim=1)
@@ -74,7 +74,7 @@ class Segformer(pl.LightningModule):
         return loss
 
     def test_step(self, batch, batch_idx):
-        masks, images = batch["mask"].float(), batch["image"].float()
+        masks, images = batch["mask"].float(), batch["post"].float()
         masks = masks.squeeze(1)
         out = self(images)
         out = torch.softmax(out, dim=1)
