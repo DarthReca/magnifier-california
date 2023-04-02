@@ -116,7 +116,12 @@ class MagnifierNet(pl.LightningModule):
                 ],
                 dim=1,
             )
-        out = self.head(hidden_states)
+
+        try:
+            out = self.head(hidden_states)
+        except TypeError:
+            out = self.head(*hidden_states)
+
         return self.postprocess(out)
 
     def configure_optimizers(self):
@@ -222,6 +227,6 @@ class MagnifierNet(pl.LightningModule):
             upsampling=4,
         )
 
-        self.head = nn.Sequential(decoder, head)
+        self.head = decoder
 
-        self.postprocess = lambda x: x
+        self.postprocess = head
