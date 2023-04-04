@@ -1,5 +1,6 @@
 # Copyright 2022 Daniele Rege Cambrin
 from itertools import chain, groupby, product
+from random import random
 from typing import Dict, List, Optional, Tuple
 
 import pytorch_lightning as pl
@@ -42,6 +43,7 @@ class MagnifierNet(pl.LightningModule):
         small_patch_size: int = 64,
         num_classes: int = 2,
         channels: int = 12,
+        learning_rate: float = 0.003,
     ):
         super().__init__()
         if model not in ["segformer", "unet", "deeplabv3plus"]:
@@ -82,7 +84,7 @@ class MagnifierNet(pl.LightningModule):
         )
 
         self.batch_to_log = [0, 5]
-        self.learning_rate = 0.0006
+        self.learning_rate = learning_rate
 
     def forward(self, x: torch.Tensor):
         # Forward all images to the net
@@ -126,7 +128,9 @@ class MagnifierNet(pl.LightningModule):
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.learning_rate)
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=15, gamma=0.1)
+        scheduler = torch.optim.lr_scheduler.PolynomialLR(
+            optimizer, total_iters=55, power=1
+        )
         return {
             "optimizer": optimizer,
             "lr_scheduler": scheduler,

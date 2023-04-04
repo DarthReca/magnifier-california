@@ -16,6 +16,7 @@ class Segformer(pl.LightningModule):
         n_channels: int = 12,
         n_classes: int = 2,
         final_size: int = 512,
+        learning_rate: float = 0.0006,
     ):
         super().__init__()
         config = SegformerConfig.from_pretrained(
@@ -42,7 +43,7 @@ class Segformer(pl.LightningModule):
         )
 
         self.batch_to_log = [0, 5]
-        self.learning_rate = 0.0006
+        self.learning_rate = learning_rate
 
     def forward(self, x):
         x = self.model(x).logits
@@ -50,7 +51,9 @@ class Segformer(pl.LightningModule):
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.learning_rate)
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=15, gamma=0.1)
+        scheduler = torch.optim.lr_scheduler.PolynomialLR(
+            optimizer, total_iters=55, power=1
+        )
         return {
             "optimizer": optimizer,
             "lr_scheduler": scheduler,

@@ -13,14 +13,13 @@ from hydra.utils import instantiate
 from lightning_modules import CaliforniaDataModule
 from neural_net import MagnifierNet
 from omegaconf import DictConfig
+from pytorch_lightning.tuner import Tuner
 
 
 @hydra.main(version_base=None, config_path="configs", config_name="train")
 def main(cfg: DictConfig):
     # Set common seed
     pl.seed_everything(47, True)
-    # Create datamodule
-    datamodule = CaliforniaDataModule(**cfg["dataset"])
     # Create model
     pl_model = instantiate(cfg["model"])
     # Setup logger
@@ -59,6 +58,25 @@ def main(cfg: DictConfig):
         ],
     )
 
+    if "lr_find" == cfg.mode:
+        tuner = Tuner(trainer)
+        suggestions = []
+        for i in range(5):
+            cfg["dataset"]["test_set"] = i
+            lr_finder = tuner.lr_find(
+                pl_model, datamodule=CaliforniaDataModule(**cfg["dataset"])
+            )
+            suggestions.append(lr_finder.suggestion())
+        print(
+            "All suggestions: ",
+            suggestions,
+            " Average: ",
+            sum(suggestions) / len(suggestions),
+        )
+        return
+
+    # Create datamodule
+    datamodule = CaliforniaDataModule(**cfg["dataset"])
     if "train" == cfg.mode:
         trainer.fit(pl_model, datamodule=datamodule)
         logger.experiment.log_model(
