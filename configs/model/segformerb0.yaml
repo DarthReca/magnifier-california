@@ -3,3 +3,4 @@ _target_: neural_net.Segformer
 n_classes: 2
 n_channels: 12
 config_name: "nvidia/mit-b0"
+learning_rate: 0.001

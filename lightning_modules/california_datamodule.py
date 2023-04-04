@@ -170,6 +170,8 @@ class PrePatchedDataset(Dataset):
                 comments = set(values.attrs["comments"].tolist())
                 if values.attrs["fold"] not in folds or comments & attributes_filter:
                     continue
+                if mode == "prepost" and "pre_fire" not in values:
+                    continue
 
                 self.post.append(values["post_fire"][...])
                 if mode == "prepost":
@@ -201,7 +203,7 @@ class PrePatchedDataset(Dataset):
             "post": torch.from_numpy(self.post[index]).permute(2, 0, 1),
             "mask": torch.from_numpy(self.masks[index]).permute(2, 0, 1),
         }
-        if self.pre:
+        if self.pre is not None:
             result["pre"] = torch.from_numpy(self.pre[index]).permute(2, 0, 1)
         return result
 

@@ -10,7 +10,7 @@ test_set: ???
 validity_filter: ["y"]
 comments_filter: []
 
-batch_size: 8
+batch_size: 16
 num_workers: 4
 parallel_workers: 8
 
