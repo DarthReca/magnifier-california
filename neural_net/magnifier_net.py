@@ -12,10 +12,9 @@ import utils
 from loss import AsymmetricUnifiedFocalLoss
 from segmentation_models_pytorch.base import SegmentationHead
 from segmentation_models_pytorch.decoders.deeplabv3.decoder import DeepLabV3PlusDecoder
+from segmentation_models_pytorch.decoders.unet.decoder import UnetDecoder
 from segmentation_models_pytorch.encoders import get_encoder
 from transformers import SegformerConfig, SegformerDecodeHead, SegformerModel
-
-from .unet import UNetDecoder, UNetEncoder
 
 
 class MagnifierNet(pl.LightningModule):
@@ -121,7 +120,7 @@ class MagnifierNet(pl.LightningModule):
 
         try:
             out = self.head(hidden_states)
-        except TypeError:
+        except (TypeError, IndexError):
             out = self.head(*hidden_states)
 
         return self.postprocess(out)
@@ -204,13 +203,20 @@ class MagnifierNet(pl.LightningModule):
         )[1]
 
     def _unet_init(self, num_classes: int = 2, channels: int = 12):
-        self.big_net = UNetEncoder(channels)
-        self.small_net = UNetEncoder(channels)
-        self.head = UNetDecoder(
-            num_classes=num_classes,
-            n_channels=2048,
+        self.big_net = get_encoder("resnet18", in_channels=channels)
+        self.small_net = get_encoder("resnet18", in_channels=channels)
+
+        decoder_channels = (256, 128, 64, 32, 16)
+        self.head = UnetDecoder(
+            encoder_channels=[c * 2 for c in self.small_net.out_channels],
+            decoder_channels=decoder_channels,
         )
-        self.postprocess = lambda x: x
+        self.postprocess = SegmentationHead(
+            in_channels=decoder_channels[-1],
+            out_channels=num_classes,
+            kernel_size=3,
+            activation=None,
+        )
 
     def _deeplabv3plus_init(self, num_classes: int = 2, channels: int = 12):
         self.big_net = get_encoder("resnet18", in_channels=channels, output_stride=16)

@@ -1,19 +1,24 @@
+import matplotlib.pyplot as plt
 import pytorch_lightning as pl
 import segmentation_models_pytorch as smp
 import torch
-import torch.nn.functional as F
 import torchmetrics as tm
+import torchvision.utils as vutils
 import utils
 from loss import AsymmetricUnifiedFocalLoss
-from torch import nn
+from torch.nn import functional as F
 
 
-class UNet(pl.LightningModule):
+class DeepLabV3PlusPP(pl.LightningModule):
     def __init__(
-        self, encoder_name: str, n_channels: int, n_classes: int, learning_rate: float
+        self,
+        encoder_name: str,
+        n_channels: int = 12,
+        n_classes: int = 2,
+        learning_rate: float = 0.01,
     ) -> None:
         super().__init__()
-        self.model = smp.Unet(
+        self.model = smp.DeepLabV3Plus(
             encoder_name=encoder_name,
             encoder_weights=None,
             in_channels=n_channels,
@@ -52,7 +57,9 @@ class UNet(pl.LightningModule):
         }
 
     def training_step(self, batch, batch_idx):
-        masks, images = batch["mask"].float(), batch["post"].float()
+        masks, images, pre = batch["mask"].float(), batch["post"].float(), batch["pre"].float()
+        images = torch.cat([images, pre], dim=1)
+
         masks = masks.squeeze(1)
         out = self(images)
         out = torch.softmax(out, dim=1)
@@ -61,7 +68,9 @@ class UNet(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        masks, images = batch["mask"].float(), batch["post"].float()
+        masks, images, pre = batch["mask"].float(), batch["post"].float(), batch["pre"].float()
+        images = torch.cat([images, pre], dim=1)
+
         masks = masks.squeeze(1)
         out = self(images)
         out = torch.softmax(out, dim=1)
@@ -70,42 +79,16 @@ class UNet(pl.LightningModule):
         return loss
 
     def test_step(self, batch, batch_idx):
-        masks, images = batch["mask"].float(), batch["post"].float()
+        masks, images, pre = batch["mask"].float(), batch["post"].float(), batch["pre"].float()
+        images = torch.cat([images, pre], dim=1)
+
         masks = masks.squeeze(1)
         out = self(images)
         out = torch.softmax(out, dim=1)
         loss = self.loss(out, masks)
 
         self.test_metrics.update(out, masks)
-        if batch_idx in self.batch_to_log:
-            self._log_images(
-                images,
-                masks,
-                out.argmax(dim=1),
-                out,
-                prefix="test",
-                draw_rgb=True,
-                draw_heatmap=True,
-            )
 
     def on_test_epoch_end(self):
         self.log_dict(self.test_metrics.compute())
         self.test_metrics.reset()
-
-    def _log_images(
-        self,
-        images: torch.Tensor,
-        masks: torch.Tensor,
-        pred_mask: torch.Tensor,
-        logits: torch.Tensor,
-        prefix: str = "",
-        draw_rgb: bool = False,
-        draw_heatmap: bool = False,
-    ):
-        for i, figure in enumerate(utils.draw_figure(masks, pred_mask)):
-            if hasattr(self.logger.experiment, "log_image"):
-                self.logger.experiment.log_figure(
-                    figure=figure,
-                    figure_name=f"{prefix}S{self.global_step}N{i}",
-                    step=self.global_step,
-                )

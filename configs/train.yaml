@@ -3,7 +3,7 @@ name: Magnifier
 
 defaults:
   - _self_
-  - model: magnifier_segformer
+  - model: magnifier_deeplab
   - trainer: default_gpu
   - dataset: california
   - logger: comet
