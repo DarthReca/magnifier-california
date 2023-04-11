@@ -45,7 +45,7 @@ def draw_figure(
     pred_mask: torch.Tensor,
     images: torch.Tensor = None,
     logits: torch.Tensor = None,
-):
+) -> List[plt.Figure]:
     rgb_indexes = (3, 2, 1)
 
     masks = (masks.byte().cpu() > 0).unsqueeze(1)
