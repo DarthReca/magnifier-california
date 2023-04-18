@@ -44,6 +44,7 @@ class MagnifierNet(pl.LightningModule):
         num_classes: int = 2,
         channels: int = 12,
         learning_rate: float = 0.003,
+        encoder_name: str = "resnet18",
     ):
         super().__init__()
         if model not in ["segformer", "unet", "deeplabv3plus", "pspnet"]:
@@ -58,9 +59,9 @@ class MagnifierNet(pl.LightningModule):
         if model == "segformer":
             self._segformer_init(num_classes, channels, big_patch_size)
         elif model == "unet":
-            self._unet_init(num_classes, channels)
+            self._unet_init(num_classes, channels, encoder_name)
         elif model == "deeplabv3plus":
-            self._deeplabv3plus_init(num_classes, channels)
+            self._deeplabv3plus_init(num_classes, channels, encoder_name)
         elif model == "pspnet":
             self._pspnet_init(num_classes, channels)
         # Parameters init
@@ -204,9 +205,11 @@ class MagnifierNet(pl.LightningModule):
             x, output_hidden_states=True
         )[1]
 
-    def _unet_init(self, num_classes: int = 2, channels: int = 12):
-        self.big_net = get_encoder("resnet18", in_channels=channels)
-        self.small_net = get_encoder("resnet18", in_channels=channels)
+    def _unet_init(
+        self, num_classes: int = 2, channels: int = 12, encoder: str = "resnet18"
+    ):
+        self.big_net = get_encoder(encoder, in_channels=channels)
+        self.small_net = get_encoder(encoder, in_channels=channels)
 
         decoder_channels = (256, 128, 64, 32, 16)
         self.head = UnetDecoder(
@@ -220,9 +223,11 @@ class MagnifierNet(pl.LightningModule):
             activation=None,
         )
 
-    def _deeplabv3plus_init(self, num_classes: int = 2, channels: int = 12):
-        self.big_net = get_encoder("resnet18", in_channels=channels, output_stride=16)
-        self.small_net = get_encoder("resnet18", in_channels=channels, output_stride=16)
+    def _deeplabv3plus_init(
+        self, num_classes: int = 2, channels: int = 12, encoder: str = "resnet18"
+    ):
+        self.big_net = get_encoder(encoder, in_channels=channels, output_stride=16)
+        self.small_net = get_encoder(encoder, in_channels=channels, output_stride=16)
 
         decoder = DeepLabV3PlusDecoder(
             encoder_channels=[c * 2 for c in self.small_net.out_channels],

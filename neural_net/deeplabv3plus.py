@@ -18,6 +18,7 @@ class DeepLabV3Plus(pl.LightningModule):
         learning_rate: float = 0.01,
     ) -> None:
         super().__init__()
+        self.save_hyperparameters()
         self.model = smp.DeepLabV3Plus(
             encoder_name=encoder_name,
             encoder_weights=None,
