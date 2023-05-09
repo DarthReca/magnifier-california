@@ -12,7 +12,6 @@ import utils
 from loss import AsymmetricUnifiedFocalLoss
 from segmentation_models_pytorch.base import SegmentationHead
 from segmentation_models_pytorch.decoders.deeplabv3.decoder import DeepLabV3PlusDecoder
-from segmentation_models_pytorch.decoders.pspnet.decoder import PSPDecoder
 from segmentation_models_pytorch.decoders.unet.decoder import UnetDecoder
 from segmentation_models_pytorch.encoders import get_encoder
 from transformers import SegformerConfig, SegformerDecodeHead, SegformerModel
@@ -38,7 +37,7 @@ class MagnifierNet(pl.LightningModule):
 
     def __init__(
         self,
-        model: Literal["segformer", "unet", "deeplabv3plus", "pspnet"] = "segformer",
+        model: Literal["segformer", "unet", "deeplabv3plus"] = "segformer",
         big_patch_size: int = 512,
         small_patch_size: int = 64,
         num_classes: int = 2,
@@ -47,7 +46,7 @@ class MagnifierNet(pl.LightningModule):
         encoder_name: str = "resnet18",
     ):
         super().__init__()
-        if model not in ["segformer", "unet", "deeplabv3plus", "pspnet"]:
+        if model not in ["segformer", "unet", "deeplabv3plus"]:
             raise ValueError("Model not supported")
         # Nets
         self.big_net = None
@@ -62,8 +61,6 @@ class MagnifierNet(pl.LightningModule):
             self._unet_init(num_classes, channels, encoder_name)
         elif model == "deeplabv3plus":
             self._deeplabv3plus_init(num_classes, channels, encoder_name)
-        elif model == "pspnet":
-            self._pspnet_init(num_classes, channels)
         # Parameters init
         self.small_patch_size = small_patch_size
         # Loss
@@ -242,27 +239,6 @@ class MagnifierNet(pl.LightningModule):
             kernel_size=1,
             activation=None,
             upsampling=4,
-        )
-
-        self.head = decoder
-
-        self.postprocess = head
-
-    def _pspnet_init(self, num_classes: int = 2, channels: int = 12):
-        self.big_net = get_encoder("resnet18", in_channels=channels)
-        self.small_net = get_encoder("resnet18", in_channels=channels)
-
-        decoder = PSPDecoder(
-            encoder_channels=[c * 2 for c in self.small_net.out_channels],
-            out_channels=512,
-        )
-
-        head = SegmentationHead(
-            in_channels=512,
-            out_channels=num_classes,
-            kernel_size=3,
-            activation=None,
-            upsampling=32,
         )
 
         self.head = decoder

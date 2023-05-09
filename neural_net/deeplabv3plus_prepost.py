@@ -1,3 +1,4 @@
+import h5py
 import matplotlib.pyplot as plt
 import pytorch_lightning as pl
 import segmentation_models_pytorch as smp
@@ -57,7 +58,11 @@ class DeepLabV3PlusPP(pl.LightningModule):
         }
 
     def training_step(self, batch, batch_idx):
-        masks, images, pre = batch["mask"].float(), batch["post"].float(), batch["pre"].float()
+        masks, images, pre = (
+            batch["mask"].float(),
+            batch["post"].float(),
+            batch["pre"].float(),
+        )
         images = torch.cat([images, pre], dim=1)
 
         masks = masks.squeeze(1)
@@ -68,7 +73,11 @@ class DeepLabV3PlusPP(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        masks, images, pre = batch["mask"].float(), batch["post"].float(), batch["pre"].float()
+        masks, images, pre = (
+            batch["mask"].float(),
+            batch["post"].float(),
+            batch["pre"].float(),
+        )
         images = torch.cat([images, pre], dim=1)
 
         masks = masks.squeeze(1)
@@ -79,7 +88,11 @@ class DeepLabV3PlusPP(pl.LightningModule):
         return loss
 
     def test_step(self, batch, batch_idx):
-        masks, images, pre = batch["mask"].float(), batch["post"].float(), batch["pre"].float()
+        masks, images, pre = (
+            batch["mask"].float(),
+            batch["post"].float(),
+            batch["pre"].float(),
+        )
         images = torch.cat([images, pre], dim=1)
 
         masks = masks.squeeze(1)
@@ -92,3 +105,20 @@ class DeepLabV3PlusPP(pl.LightningModule):
     def on_test_epoch_end(self):
         self.log_dict(self.test_metrics.compute())
         self.test_metrics.reset()
+
+    def on_predict_start(self) -> None:
+        h5py.File("predictions.hdf5", "w").close()
+
+    def predict_step(self, batch, batch_idx: int, dataloader_idx: int = 0):
+        images, pre = batch["post"].float(), batch["pre"].float()
+        names = batch["name"]
+        images = torch.cat([images, pre], dim=1)
+
+        out = self(images)
+        out = torch.argmax(out, dim=1)
+
+        with h5py.File("predictions.hdf5", "a") as f:
+            for n, m in zip(names, out):
+                f.create_dataset(
+                    name=n, data=m.detach().cpu().numpy(), compression="gzip"
+                )

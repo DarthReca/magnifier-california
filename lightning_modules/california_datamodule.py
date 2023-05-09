@@ -93,7 +93,7 @@ class CaliforniaDataModule(pl.LightningDataModule):
                 attributes_filter=set(self.hparams["comments_filter"]),
             )
 
-        if stage in ("test", None):
+        if stage in ("test", "predict", None):
             """
             self.test_dataset = HDF5CaliforniaDataset(
                 self.root,
@@ -135,6 +135,15 @@ class CaliforniaDataModule(pl.LightningDataModule):
         )
 
     def test_dataloader(self):
+        return DataLoader(
+            self.test_dataset,
+            batch_size=self.batch_size,
+            num_workers=self.hparams["num_workers"],
+            pin_memory=True,
+            drop_last=False,
+        )
+
+    def predict_dataloader(self):
         return DataLoader(
             self.test_dataset,
             batch_size=self.batch_size,

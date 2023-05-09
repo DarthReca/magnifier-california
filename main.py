@@ -85,6 +85,8 @@ def main(cfg: DictConfig):
         trainer.test(pl_model, datamodule=datamodule, ckpt_path="best")
     if "test" == cfg.mode:
         trainer.test(pl_model, datamodule=datamodule, ckpt_path=cfg.ckpt_path)
+    if "predict" == cfg.mode:
+        trainer.predict(pl_model, datamodule=datamodule, ckpt_path=cfg.ckpt_path)
 
     logger.experiment.end()
 
