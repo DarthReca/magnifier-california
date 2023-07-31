@@ -1,11 +1,12 @@
 ---
 name: Magnifier
+model_name: &model magnifier_deeplab
 
 defaults:
   - _self_
-  - model: magnifier_deeplab
+  - model: *model
   - trainer: default_gpu
-  - dataset: california
+  - dataset: europe
   - logger: comet
 
 mode: train

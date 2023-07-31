@@ -10,7 +10,7 @@ import pytorch_lightning as pl
 import pytorch_lightning.loggers as loggers
 import utils
 from hydra.utils import instantiate
-from lightning_modules import CaliforniaDataModule
+from lightning_modules import CaliforniaDataModule, EuropeDataModule
 from neural_net import MagnifierNet
 from omegaconf import DictConfig
 from pytorch_lightning.tuner import Tuner
@@ -54,6 +54,7 @@ def main(cfg: DictConfig):
             early_stopping_callback,
             lr_logger,
             model_summary_callback,
+            pl.callbacks.RichProgressBar(),
             # lr_finder,
         ],
     )
@@ -76,7 +77,7 @@ def main(cfg: DictConfig):
         return
 
     # Create datamodule
-    datamodule = CaliforniaDataModule(**cfg["dataset"])
+    datamodule = EuropeDataModule(**cfg["dataset"])
     if "train" == cfg.mode:
         trainer.fit(pl_model, datamodule=datamodule)
         logger.experiment.log_model(
@@ -88,6 +89,7 @@ def main(cfg: DictConfig):
     if "predict" == cfg.mode:
         trainer.predict(pl_model, datamodule=datamodule, ckpt_path=cfg.ckpt_path)
 
+    logger.experiment.log_parameter("model", cfg.model_name)
     logger.experiment.end()
 
 
