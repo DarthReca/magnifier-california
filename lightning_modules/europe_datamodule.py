@@ -164,3 +164,51 @@ class EuropeDataset(Dataset):
         if self.pre is not None:
             result["pre"] = torch.from_numpy(self.pre[index]).permute(2, 0, 1)
         return result
+
+
+class LazyEuropeDataset(Dataset):
+    def __init__(
+        self,
+        hdf5_file: str,
+        mode: Literal["post", "prepost"],
+        folds: Set[str],
+        transforms=None,
+    ) -> None:
+        if mode not in ("post", "prepost"):
+            raise ValueError(f"Invalid mode: {mode}")
+        super().__init__()
+        self.transforms = transforms
+        self.hdf5_file = hdf5_file
+
+        self.post = []
+        self.pre = []
+        self.masks = []
+        self.names = []
+        print("Loading folds: ", folds)
+        with h5py.File(hdf5_file, "r") as f:
+            for fold in folds:
+                for uuid in f[fold].keys():
+                    self.post.append(f"{fold}/{uuid}/post")
+                    self.masks.append(f"{fold}/{uuid}/mask")
+                    self.names.append(uuid)
+
+        self.post_sample = np.empty((512, 512, 12), dtype=np.float32)
+        self.mask_sample = np.empty((512, 512, 1), dtype=np.int32)
+
+    def __len__(self) -> int:
+        return len(self.names)
+
+    def __getitem__(self, index: int) -> Any:
+        if self.transforms is not None:
+            pass  # TODO: Implement other transforms
+
+        with h5py.File(self.hdf5_file, "r") as f:
+            f[self.post[index]].read_direct(self.post_sample)
+            f[self.masks[index]].read_direct(self.mask_sample)
+
+        result = {
+            "name": self.names[index],
+            "post": torch.from_numpy(self.post_sample).clone().permute(2, 0, 1),
+            "mask": torch.from_numpy(self.mask_sample).clone().permute(2, 0, 1),
+        }
+        return result

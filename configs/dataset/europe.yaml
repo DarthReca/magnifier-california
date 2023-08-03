@@ -9,7 +9,6 @@ test_set: ???
 
 batch_size: 16
 num_workers: 4
-parallel_workers: 8
 
 patch_size: 512
 keep_burned_only: true
