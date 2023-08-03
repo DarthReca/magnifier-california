@@ -143,6 +143,9 @@ class MagnifierNet(pl.LightningModule):
         out = torch.softmax(out, dim=1)
         # Loss
         loss = self.loss(out, masks)
+        # If loss is nan, stop training
+        if torch.isnan(loss):
+            return None
         # Log
         self.log("train_loss", loss)
         return loss

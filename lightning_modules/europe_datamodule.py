@@ -158,9 +158,11 @@ class EuropeDataset(Dataset):
             pass  # TODO: Implement other transforms
         result = {
             "name": self.names[index],
-            "post": torch.from_numpy(self.post[index]).permute(2, 0, 1),
+            "post": torch.from_numpy(self.post[index]).permute(2, 0, 1) * 10,
             "mask": torch.from_numpy(self.masks[index]).permute(2, 0, 1),
         }
+        # Clamp mask to 0-1
+        result["mask"] = torch.clamp(result["mask"], 0, 1)
         if self.pre is not None:
             result["pre"] = torch.from_numpy(self.pre[index]).permute(2, 0, 1)
         return result
