@@ -1,5 +1,5 @@
 <div align="center">
-  A Multi-grained Neural Network-based Architecture for Burned Area Delineation
+Magnifier: A Multi-grained Neural Network-based Architecture for Burned Area Delineation
   <br />
   <a href="#about"><strong>Explore the screenshots »</strong></a>
   <br />
@@ -45,7 +45,7 @@
 
 ## About
 
-This is the source code for the paper "A Multi-grained Neural Network-based Architecture for Burned Area Delineation".
+This is the source code for the paper "Magnifier: A Multi-grained Neural Network-based Architecture for Burned Area Delineation".
 
 **MORE DETAILS WILL BE UPLOADED SOON.**
 
@@ -83,7 +83,4 @@ This project is licensed under the **Apache-2.0 license**. See [LICENSE](LICENSE
 Some files have different licenses:
 
 - unified_focal_loss.py: [Apache-2.0](licenses/UNIFIED_FOCAL)
-- gdice_loss.py: [MIT](licenses/DICE)
 - hf_segformer.py, hf_segformer_backbone.py, hf_segformer_head.py: [Apache-2.0](licenses/HF_LICENSE)
-
-## Citation
