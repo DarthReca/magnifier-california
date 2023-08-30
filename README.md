@@ -14,8 +14,7 @@ Magnifier: A Multi-grained Neural Network-based Architecture for Burned Area Del
 <div align="center">
 <br />
 
-[![Project license](https://img.shields.io/github/license/DarthReca/magnifier-california.svg?style=flat-square)](LICENSE)
-
+[![Project license](https://img.shields.io/github/license/DarthReca/magnifier-california)](LICENSE)
 [![Pull Requests welcome](https://img.shields.io/badge/PRs-welcome-ff69b4.svg?style=flat-square)](https://github.com/DarthReca/magnifier-california/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22)
 [![code with love by DarthReca](https://img.shields.io/badge/%3C%2F%3E%20with%20%E2%99%A5%20by-DarthReca-ff1414.svg?style=flat-square)](https://github.com/DarthReca)
 
