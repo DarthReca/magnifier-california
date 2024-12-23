@@ -2,7 +2,7 @@ seed: 42
 
 pre_available: False
 mode: post
-root: "/data2/drege/magnifier-california/data/512x512.hdf5"
+root: "/data1/lcolomba/datasets/512x512.hdf5"
 
 train_set: null
 test_set: ???

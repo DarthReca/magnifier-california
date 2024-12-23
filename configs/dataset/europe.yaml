@@ -2,12 +2,12 @@ seed: 42
 
 pre_available: False
 mode: post
-root: "data/europe.hdf5"
+root: "/data2/drege/magnifier-california/data/europe.hdf5"
 
 train_set: null
-test_set: ???
+test_set: coral
 
-batch_size: 16
+batch_size: 6
 num_workers: 4
 
 patch_size: 512

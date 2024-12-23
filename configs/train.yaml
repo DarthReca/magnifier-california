@@ -1,6 +1,6 @@
 ---
-name: Magnifier
-model_name: &model magnifier_deeplab
+name: BurntNet
+model_name: &model magnifier_burntnet_auf
 
 defaults:
   - _self_

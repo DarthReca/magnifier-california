@@ -16,6 +16,8 @@ from segmentation_models_pytorch.decoders.unet.decoder import UnetDecoder
 from segmentation_models_pytorch.encoders import get_encoder
 from transformers import SegformerConfig, SegformerDecodeHead, SegformerModel
 
+from .burntnet import BurntNetEncoder, BurntNetDecoder, BurntNetHead
+
 
 class MagnifierNet(pl.LightningModule):
     """
@@ -37,16 +39,17 @@ class MagnifierNet(pl.LightningModule):
 
     def __init__(
         self,
-        model: Literal["segformer", "unet", "deeplabv3plus"] = "segformer",
+        model: Literal["segformer", "unet", "deeplabv3plus", 'burntnet'] = "segformer",
         big_patch_size: int = 512,
         small_patch_size: int = 64,
         num_classes: int = 2,
         channels: int = 12,
         learning_rate: float = 0.003,
         encoder_name: str = "resnet18",
+        features: Optional[List[int]]=None,
     ):
         super().__init__()
-        if model not in ["segformer", "unet", "deeplabv3plus"]:
+        if model not in ["segformer", "unet", "deeplabv3plus", 'burntnet']:
             raise ValueError("Model not supported")
         # Nets
         self.big_net = None
@@ -61,6 +64,8 @@ class MagnifierNet(pl.LightningModule):
             self._unet_init(num_classes, channels, encoder_name)
         elif model == "deeplabv3plus":
             self._deeplabv3plus_init(num_classes, channels, encoder_name)
+        elif model == 'burntnet':
+            self._burntnet_init(num_classes, channels, features)
         # Parameters init
         self.small_patch_size = small_patch_size
         # Loss
@@ -247,3 +252,31 @@ class MagnifierNet(pl.LightningModule):
         self.head = decoder
 
         self.postprocess = head
+
+    def _burntnet_init(
+        self, num_classes: int=2, channels: int=12,
+        features: Optional[List[int]]=None
+    ) -> None:
+        if features is None:
+            features = [32, 64, 128, 256, 512]
+        self.big_net = BurntNetEncoder(
+            features, channels, kernel_size=3,
+            engine='convolution'
+        )
+        self.small_net = BurntNetEncoder(
+            features, channels, kernel_size=3,
+            engine='convolution'
+        )
+
+        self.head = BurntNetDecoder(
+            [x * 2 for x in features], kernel_size=3,
+            engine='convolution'
+        )
+
+        self.postprocess = BurntNetHead(
+            in_channels=features[0] * 2,
+            nclasses=num_classes
+        )
+
+        return
+    

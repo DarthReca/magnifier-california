@@ -77,7 +77,7 @@ def main(cfg: DictConfig):
         return
 
     # Create datamodule
-    datamodule = EuropeDataModule(**cfg["dataset"])
+    datamodule = CaliforniaDataModule(**cfg["dataset"])
     if "train" == cfg.mode:
         trainer.fit(pl_model, datamodule=datamodule)
         logger.experiment.log_model(
