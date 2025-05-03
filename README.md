@@ -26,9 +26,9 @@ Magnifier: A Multi-grained Neural Network-based Architecture for Burned Area Del
 ## About
 
 This is the source code for the paper "Magnifier: A Multi-grained Neural Network-based Architecture for Burned Area Delineation".
-You can find it on [Arxiv](https://arxiv.org/abs/2504.19589v1) or on [IEEE](https://ieeexplore.ieee.org/document/10980409)
+In this paper, we propose a novel methodology, namely Magnifier, to improve segmentation performance with limited data availability. The Magnifier methodology is applicable to any existing encoder-decoder architecture, as it extends a model by merging information at different contextual levels through a dual-encoder approach: a local and global encoder. **Magnifier analyzes the input data twice using the dual-encoder approach. In particular, the local and global encoders extract information from the same input at different granularities.** This allows Magnifier to extract more information than the other approaches, given the same set of input images. Magnifier improves the quality of the results of +2.65% on average IoU while leading to a restrained increase in terms of the number of trainable parameters compared to the original model. We evaluated our proposed approach with state-of-the-art burned area segmentation models, demonstrating, on average, comparable or better performances in less than half of the GFLOPs.
 
-**MORE DETAILS WILL BE UPLOADED SOON.**
+You can find it on [Arxiv](https://arxiv.org/abs/2504.19589v1) or on [IEEE](https://ieeexplore.ieee.org/document/10980409).
 
 ## Getting Started
 
